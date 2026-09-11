@@ -26,7 +26,21 @@ suffisent.
 
 ---
 
-## Installation
+## Deux façons de l'utiliser
+
+**1. Web app, rien à installer** — `web/` contient la même application portée
+intégralement en JavaScript : elle tourne dans le navigateur, y compris sur
+téléphone, et aucune image ne quitte l'appareil. Ouvrez `web/index.html` (ou
+servez le dossier : `python -m http.server -d web`). Les fichiers produits
+(PNG, SVG, PDF) sont enregistrés par le navigateur lui-même.
+
+**2. Version Python** — pour traiter des lots en ligne de commande, scripter
+la préparation, ou travailler sur de très gros fichiers sans limite de mémoire
+navigateur. C'est ce que décrit la suite de ce document.
+
+---
+
+## Installation (version Python)
 
 ```bash
 git clone <ce dépôt> && cd printpro
@@ -218,6 +232,25 @@ Résolutions courantes : 150 / 300 / 600 dpi.
   traits vectoriels pour les repères), sans dépendance PDF.
 
 ---
+
+## La web app en détail
+
+`web/` ne dépend d'aucune bibliothèque externe et ne contient aucune étape de
+compilation — quatre fichiers JavaScript et une page :
+
+| Fichier | Rôle |
+|---|---|
+| `engine.js` | primitives : conversion L\*a\*b\*, redimensionnement alpha-correct, flou, composantes connexes, morphologie, k-means |
+| `tools.js` | détourage, vectorisation (tracé, lissage, Bézier, SVG), rastériseur, agrandissement |
+| `montage.js` | nesting MaxRects, rendu des planches, écriture du PDF |
+| `app.js` | interface de l'atelier |
+
+Différences assumées avec la version Python : l'agrandissement utilise le
+rééchantillonnage du navigateur au lieu de Lanczos, le tracé bascule sur une
+version réduite au-delà de 4 Mpx (le SVG reste à l'échelle réelle), l'aperçu
+PNG d'une planche est plafonné à 16 Mpx — le PDF, lui, garde ses 300 dpi car
+chaque visuel y est placé individuellement. Les images du PDF sont encodées en
+JPEG avec un masque alpha `/FlateDecode` produit par `CompressionStream`.
 
 ## Tests
 

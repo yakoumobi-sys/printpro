@@ -1,0 +1,761 @@
+<title>Atelier PrintPro</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+:root {
+  --paper: #e9eef1;
+  --surface: #ffffff;
+  --sunk: #f3f7f9;
+  --ink: #12171b;
+  --ink-soft: #56656f;
+  --line: #d3dde2;
+  --line-strong: #b9c7ce;
+  --accent: #e6007e;          /* magenta process */
+  --accent-ink: #ffffff;
+  --accent-wash: #fdeaf3;
+  --cyan: #0081bd;
+  --ok: #14784c;
+  --warn: #9a5a00;
+  --bad: #c02a2a;
+  --checker-a: #dde5e9;
+  --checker-b: #ffffff;
+  --radius: 9px;
+  --sans: "Archivo", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0d1317;
+    --surface: #161e24;
+    --sunk: #111a1f;
+    --ink: #e7eef2;
+    --ink-soft: #93a4af;
+    --line: #26323a;
+    --line-strong: #35454f;
+    --accent: #ff3d9a;
+    --accent-ink: #24000f;
+    --accent-wash: #2e1020;
+    --cyan: #48b8ec;
+    --ok: #46c48c;
+    --warn: #e0a33a;
+    --bad: #f2756c;
+    --checker-a: #1c262d;
+    --checker-b: #141d22;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper: #0d1317;
+  --surface: #161e24;
+  --sunk: #111a1f;
+  --ink: #e7eef2;
+  --ink-soft: #93a4af;
+  --line: #26323a;
+  --line-strong: #35454f;
+  --accent: #ff3d9a;
+  --accent-ink: #24000f;
+  --accent-wash: #2e1020;
+  --cyan: #48b8ec;
+  --ok: #46c48c;
+  --warn: #e0a33a;
+  --bad: #f2756c;
+  --checker-a: #1c262d;
+  --checker-b: #141d22;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+}
+
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+
+button, input, select { font-family: inherit; font-size: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------------------------------------------------------- en-tête -- */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+.wordmark {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-size: 16px;
+}
+.wordmark .dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--accent);
+  align-self: center;
+}
+.tagline {
+  color: var(--ink-soft);
+  font-size: 12.5px;
+}
+.topbar .grow { flex: 1; }
+
+/* ------------------------------------------------------------ cadre -- */
+.shell {
+  display: grid;
+  grid-template-columns: 248px minmax(300px, 1fr) 320px;
+  gap: 14px;
+  padding: 14px 16px 28px;
+  align-items: start;
+}
+@media (max-width: 1080px) { .shell { grid-template-columns: 1fr; } }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.panel > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 13px;
+  border-bottom: 1px solid var(--line);
+  background: var(--sunk);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.panel > header h2 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-soft);
+}
+.step {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+.panel .body { padding: 13px; }
+
+/* ------------------------------------------------------- visuels ---- */
+#drop {
+  border: 1.5px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--sunk);
+  color: var(--ink-soft);
+  padding: 16px 10px;
+  text-align: center;
+  font-size: 12.5px;
+  transition: border-color .15s, background .15s, color .15s;
+}
+#drop b { display: block; color: var(--ink); font-size: 13px; font-weight: 600; }
+#drop:hover, #drop.hot {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+#library { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 11px; }
+
+.tile {
+  position: relative;
+  border: 1.5px solid var(--line);
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--surface);
+  text-align: left;
+  padding: 0;
+  display: block;
+  width: 100%;
+}
+.tile[aria-pressed="true"] { border-color: var(--accent); }
+.tile .art {
+  height: 74px;
+  background-image:
+    linear-gradient(45deg, var(--checker-a) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--checker-a) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--checker-a) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--checker-a) 75%);
+  background-size: 14px 14px;
+  background-position: 0 0, 0 7px, 7px -7px, -7px 0;
+  background-color: var(--checker-b);
+  display: grid;
+  place-items: center;
+}
+.tile .art img { max-width: 100%; max-height: 74px; display: block; }
+.tile .meta {
+  font-size: 10.5px;
+  font-family: var(--mono);
+  color: var(--ink-soft);
+  padding: 4px 6px;
+  border-top: 1px solid var(--line);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tile .pick { position: absolute; top: 5px; left: 5px; accent-color: var(--accent); }
+.tile .drop-one {
+  position: absolute; top: 4px; right: 4px;
+  border: 0; border-radius: 5px; padding: 2px 5px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--ink-soft); font-size: 11px; line-height: 1.2;
+}
+.tile .drop-one:hover { color: var(--accent); }
+
+/* ------------------------------------------------- plan de travail -- */
+#stage {
+  min-height: 320px;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background-image:
+    linear-gradient(45deg, var(--checker-a) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--checker-a) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--checker-a) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--checker-a) 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+  background-color: var(--checker-b);
+}
+#stage img { max-width: 100%; max-height: 56vh; display: block; }
+#stage .hint { color: var(--ink-soft); font-size: 13px; text-align: center; padding: 40px 20px; }
+
+.readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 9px 13px;
+  border-top: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+.readout .grow { flex: 1; }
+.readout b { color: var(--ink); font-weight: 500; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 11px;
+  font-family: var(--mono);
+  border: 1px solid currentColor;
+}
+.chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.chip.ok { color: var(--ok); }
+.chip.warn { color: var(--warn); }
+.chip.bad { color: var(--bad); }
+
+.trail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 9px 13px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+.trail span {
+  background: var(--sunk);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 1px 7px;
+}
+
+/* --------------------------------------------------------- réglages -- */
+.tabs { display: flex; border-bottom: 1px solid var(--line); }
+.tabs button {
+  flex: 1;
+  border: 0;
+  background: none;
+  padding: 10px 4px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-soft);
+  border-bottom: 2px solid transparent;
+}
+.tabs button[aria-selected="true"] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  background: var(--surface);
+}
+
+.tool { display: none; padding: 13px; }
+.tool.on { display: block; }
+
+.field { margin-bottom: 10px; }
+.field > label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-bottom: 4px;
+}
+.field > label .value {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.row { display: flex; gap: 8px; }
+.row > * { flex: 1; min-width: 0; }
+
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+input[type="number"], input[type="text"], select {
+  width: 100%;
+  padding: 7px 9px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+select { font-family: var(--sans); }
+input[type="color"] {
+  width: 100%; height: 33px; padding: 2px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--surface);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  padding: 3px 0;
+}
+.check input { accent-color: var(--accent); }
+
+.go {
+  width: 100%;
+  margin-top: 6px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  font-size: 13px;
+}
+.go:hover { filter: brightness(1.07); }
+.go[disabled] { opacity: .5; cursor: not-allowed; }
+
+.ghost {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 6px;
+  padding: 4px 9px;
+  font-size: 12px;
+}
+.ghost:hover { border-color: var(--accent); color: var(--accent); }
+.ghost[disabled] { opacity: .45; cursor: not-allowed; }
+
+.note {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  margin: 9px 0 0;
+  font-family: var(--mono);
+}
+.swatches { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.swatches i {
+  width: 15px; height: 15px; border-radius: 3px;
+  border: 1px solid var(--line-strong); display: block;
+}
+
+/* ---------------------------------------------------------- planche -- */
+.sheet-panel { grid-column: 1 / -1; }
+.sheet-grid {
+  display: grid;
+  grid-template-columns: minmax(250px, 1fr) minmax(240px, 300px) minmax(280px, 1.15fr);
+  gap: 20px;
+  padding: 14px;
+}
+@media (max-width: 1080px) { .sheet-grid { grid-template-columns: 1fr; } }
+
+.job { display: flex; flex-direction: column; gap: 7px; }
+.job-row {
+  display: grid;
+  grid-template-columns: 34px 1fr 68px 58px;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 5px 8px;
+}
+.job-row .art {
+  width: 30px; height: 30px; border-radius: 4px;
+  background: var(--sunk); display: grid; place-items: center; overflow: hidden;
+}
+.job-row .art img { max-width: 30px; max-height: 30px; }
+.job-row .name { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-row input { padding: 4px 6px; font-size: 12px; }
+.job-head {
+  display: grid;
+  grid-template-columns: 34px 1fr 68px 58px;
+  gap: 8px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+  padding: 0 8px 2px;
+}
+
+.stats { display: flex; flex-wrap: wrap; gap: 6px; }
+.stat {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  background: var(--sunk);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-variant-numeric: tabular-nums;
+}
+.stat b { color: var(--ink); font-weight: 500; }
+
+.downloads { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.downloads button {
+  border: 0;
+  border-radius: 7px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  background: var(--cyan);
+  color: #fff;
+}
+.downloads button.second {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  font-weight: 500;
+}
+.downloads button.second:hover { border-color: var(--cyan); color: var(--cyan); }
+
+#sheets { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+#sheets figure { margin: 0; }
+#sheets img {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: #fff;
+  display: block;
+}
+#sheets figcaption {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+  padding-top: 4px;
+}
+.empty-sheet {
+  border: 1.5px dashed var(--line-strong);
+  border-radius: var(--radius);
+  padding: 26px 16px;
+  text-align: center;
+  color: var(--ink-soft);
+  font-size: 12.5px;
+}
+
+/* ------------------------------------------------------------ divers -- */
+#veil {
+  position: fixed; inset: 0; z-index: 60;
+  display: none; place-items: center;
+  background: color-mix(in srgb, var(--paper) 72%, transparent);
+}
+#veil.on { display: grid; }
+#veil .box {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px 22px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+.spin {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2.4s; } }
+
+#flash {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%) translateY(90px);
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 13px;
+  z-index: 70;
+  max-width: min(92vw, 520px);
+  transition: transform .22s ease;
+}
+#flash.on { transform: translateX(-50%) translateY(0); }
+#flash.bad { background: var(--bad); color: #fff; }
+</style>
+
+<div class="topbar">
+  <span class="wordmark"><span class="dot"></span>PrintPro</span>
+  <span class="tagline">détourer · agrandir · vectoriser · monter la planche</span>
+  <span class="grow"></span>
+  <button class="ghost" id="reset" type="button">Vider l'atelier</button>
+</div>
+
+<div class="shell">
+
+  <section class="panel">
+    <header><span class="step">1</span><h2>Visuels</h2></header>
+    <div class="body">
+      <button id="drop" type="button">
+        <b>Déposer des images</b>
+        PNG · JPEG · WEBP — ou cliquer
+      </button>
+      <input type="file" id="file-input" multiple accept="image/*" hidden>
+      <div id="library"></div>
+      <p class="note" id="library-note"></p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <header><span class="step">2</span><h2>Plan de travail</h2></header>
+    <div id="stage"><p class="hint">Déposez un visuel pour commencer.</p></div>
+    <div class="readout">
+      <span id="dims">—</span>
+      <span class="grow"></span>
+      <button class="ghost" id="undo" type="button">Annuler l'étape</button>
+      <button class="ghost" id="save-png" type="button">PNG</button>
+      <button class="ghost" id="save-svg" type="button" disabled>SVG</button>
+    </div>
+    <div class="readout">
+      <label for="print-mm" style="font-family:var(--sans)">Imprimé à</label>
+      <input type="number" id="print-mm" value="100" min="5" max="3000" step="5" style="width:82px">
+      <span>mm de large</span>
+      <span id="quality" class="chip">—</span>
+      <span class="grow"></span>
+      <span id="needed"></span>
+    </div>
+    <div class="trail" id="trail"></div>
+  </section>
+
+  <section class="panel">
+    <header><span class="step">3</span><h2>Traitements</h2></header>
+    <div class="tabs" role="tablist">
+      <button role="tab" id="tab-cut" aria-selected="true" aria-controls="tool-cut">Détourage</button>
+      <button role="tab" id="tab-up" aria-selected="false" aria-controls="tool-up">Agrandir</button>
+      <button role="tab" id="tab-vec" aria-selected="false" aria-controls="tool-vec">Vectoriser</button>
+    </div>
+
+    <div class="tool on" id="tool-cut" role="tabpanel" aria-labelledby="tab-cut">
+      <div class="field">
+        <label for="cut-method">Fond à retirer</label>
+        <select id="cut-method">
+          <option value="auto">Détecté automatiquement</option>
+          <option value="color">Couleur précise</option>
+        </select>
+      </div>
+      <div class="field" id="cut-color-field" hidden>
+        <label for="cut-color">Couleur du fond</label>
+        <input type="color" id="cut-color" value="#ffffff">
+      </div>
+      <div class="field">
+        <label for="cut-tol">Tolérance <span class="value" id="cut-tol-v">12</span></label>
+        <input type="range" id="cut-tol" min="2" max="45" step="1" value="12">
+      </div>
+      <div class="field">
+        <label for="cut-soft">Douceur du bord <span class="value" id="cut-soft-v">6</span></label>
+        <input type="range" id="cut-soft" min="0" max="30" step="1" value="6">
+      </div>
+      <div class="field">
+        <label for="cut-shift">Épaisseur du sujet <span class="value" id="cut-shift-v">0 px</span></label>
+        <input type="range" id="cut-shift" min="-4" max="4" step="1" value="0">
+      </div>
+      <label class="check"><input type="checkbox" id="cut-holes" checked> Fonds intérieurs transparents</label>
+      <label class="check"><input type="checkbox" id="cut-largest"> Garder le plus grand sujet seul</label>
+      <label class="check"><input type="checkbox" id="cut-trim" checked> Rogner les bords vides</label>
+      <button class="go" id="run-cut" type="button">Détourer</button>
+      <p class="note" id="cut-note"></p>
+    </div>
+
+    <div class="tool" id="tool-up" role="tabpanel" aria-labelledby="tab-up">
+      <div class="field">
+        <label for="up-method">Méthode</label>
+        <select id="up-method">
+          <option value="auto">Automatique</option>
+          <option value="vector">Vectorielle — logos, aplats</option>
+          <option value="edge">Photo — contours renforcés</option>
+          <option value="smooth">Lissée simple</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="up-target">Cible</label>
+        <div class="row">
+          <select id="up-target">
+            <option value="scale">Facteur</option>
+            <option value="mm">Largeur imprimée</option>
+          </select>
+          <input type="number" id="up-value" value="2" min="0.2" max="20" step="0.5">
+        </div>
+      </div>
+      <div class="field" id="up-dpi-field" hidden>
+        <label for="up-dpi">Résolution visée</label>
+        <select id="up-dpi">
+          <option>150</option><option selected>300</option><option>600</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="up-denoise">Débruitage <span class="value" id="up-denoise-v">0.00</span></label>
+        <input type="range" id="up-denoise" min="0" max="1" step="0.05" value="0">
+      </div>
+      <div class="field">
+        <label for="up-sharpen">Netteté <span class="value" id="up-sharpen-v">0.45</span></label>
+        <input type="range" id="up-sharpen" min="0" max="1.5" step="0.05" value="0.45">
+      </div>
+      <button class="go" id="run-up" type="button">Agrandir</button>
+      <p class="note" id="up-note"></p>
+    </div>
+
+    <div class="tool" id="tool-vec" role="tabpanel" aria-labelledby="tab-vec">
+      <div class="field">
+        <label for="vec-mode">Mode</label>
+        <select id="vec-mode">
+          <option value="color">Couleurs</option>
+          <option value="bw">Noir et blanc — trait</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="vec-colors">Couleurs <span class="value" id="vec-colors-v">8</span></label>
+        <input type="range" id="vec-colors" min="2" max="24" step="1" value="8">
+      </div>
+      <div class="field">
+        <label for="vec-detail">Fidélité du tracé <span class="value" id="vec-detail-v">1.0 px</span></label>
+        <input type="range" id="vec-detail" min="0.2" max="4" step="0.1" value="1">
+      </div>
+      <div class="field">
+        <label for="vec-smooth">Lissage <span class="value" id="vec-smooth-v">1.0</span></label>
+        <input type="range" id="vec-smooth" min="0" max="2.5" step="0.1" value="1">
+      </div>
+      <div class="field">
+        <label for="vec-area">Ignorer sous <span class="value" id="vec-area-v">12 px²</span></label>
+        <input type="range" id="vec-area" min="1" max="200" step="1" value="12">
+      </div>
+      <label class="check"><input type="checkbox" id="vec-dropbg" checked> Retirer la couleur de fond</label>
+      <label class="check"><input type="checkbox" id="vec-replace" checked> Remplacer l'aperçu par le rendu</label>
+      <button class="go" id="run-vec" type="button">Vectoriser en SVG</button>
+      <p class="note" id="vec-note"></p>
+    </div>
+  </section>
+
+  <section class="panel sheet-panel">
+    <header><span class="step">4</span><h2>Montage sur la planche</h2></header>
+    <div class="sheet-grid">
+
+      <div>
+        <div class="job-head"><span></span><span>Visuel</span><span>Largeur mm</span><span>Qté</span></div>
+        <div class="job" id="job"></div>
+      </div>
+
+      <div>
+        <div class="field">
+          <label for="m-page">Format de planche</label>
+          <select id="m-page"></select>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="m-orient">Orientation</label>
+            <select id="m-orient">
+              <option value="auto">Auto</option>
+              <option value="portrait">Portrait</option>
+              <option value="landscape">Paysage</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="m-dpi">Résolution</label>
+            <select id="m-dpi"><option>150</option><option selected>300</option><option>600</option></select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="m-layout">Disposition</label>
+          <select id="m-layout">
+            <option value="pack">Optimisée — nesting</option>
+            <option value="grid">Grille régulière</option>
+            <option value="fill">Remplir la planche</option>
+          </select>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="m-margin">Marge mm</label>
+            <input type="number" id="m-margin" value="6" min="0" max="60" step="1">
+          </div>
+          <div class="field">
+            <label for="m-space">Espacement mm</label>
+            <input type="number" id="m-space" value="3" min="0" max="40" step="0.5">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="m-bg">Fond</label>
+            <input type="color" id="m-bg" value="#ffffff">
+          </div>
+          <div class="field">
+            <label for="m-cut">Découpe mm</label>
+            <input type="number" id="m-cut" value="0" min="0" max="12" step="0.5">
+          </div>
+        </div>
+        <label class="check"><input type="checkbox" id="m-transparent"> Fond transparent — DTF, flex</label>
+        <label class="check"><input type="checkbox" id="m-mirror"> Miroir — transfert, sublimation</label>
+        <label class="check"><input type="checkbox" id="m-marks"> Traits de coupe</label>
+        <label class="check"><input type="checkbox" id="m-reg"> Repères de calage</label>
+        <label class="check"><input type="checkbox" id="m-outline"> Cadres de contrôle</label>
+        <button class="go" id="run-sheet" type="button">Générer la planche</button>
+      </div>
+
+      <div>
+        <div class="stats" id="sheet-stats"></div>
+        <div class="downloads" id="sheet-downloads"></div>
+        <div id="sheets"><p class="empty-sheet">La planche générée s'affichera ici, prête à télécharger en PDF ou en PNG.</p></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div id="veil"><div class="box"><span class="spin"></span><span id="veil-text">Calcul…</span></div></div>
+<div id="flash" role="status" aria-live="polite"></div>
+
+<script src="engine.js"></script>
+<script src="tools.js"></script>
+<script src="montage.js"></script>
+<script src="app.js"></script>
