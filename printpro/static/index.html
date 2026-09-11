@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PrintPro — atelier de préparation pour l'impression</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23d92b3c'/%3E%3Ctext x='16' y='22' font-size='16' font-family='sans-serif' font-weight='bold' fill='white' text-anchor='middle'%3EP%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header>
+  <div class="logo">PP</div>
+  <h1>PrintPro</h1>
+  <span class="tag">vectoriser · agrandir · détourer · monter la planche</span>
+  <span class="spacer"></span>
+  <button class="mini" id="clear">Vider l'atelier</button>
+</header>
+
+<div class="layout">
+
+  <!-- ------------------------------------------------ bibliothèque -->
+  <section class="panel">
+    <h2>1. Visuels</h2>
+    <div class="body">
+      <div id="drop">
+        <strong>Déposer des images</strong>
+        PNG, JPEG, WEBP, TIFF — ou cliquer
+        <input type="file" id="file" multiple accept="image/*" hidden>
+      </div>
+      <div id="library"></div>
+      <p class="note" id="lib-note">Aucun visuel importé pour l'instant.</p>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------ aperçu -->
+  <section class="panel">
+    <h2>2. Aperçu</h2>
+    <div id="stage"><div class="empty">Importez un visuel pour commencer.</div></div>
+    <div class="viewer-bar">
+      <span id="dims" class="muted">—</span>
+      <span class="spacer"></span>
+      <button class="mini" id="undo">Annuler l'étape</button>
+      <a class="mini" id="dl-png" href="#" download>PNG</a>
+      <a class="mini" id="dl-svg" href="#" download>SVG</a>
+    </div>
+    <div class="viewer-bar">
+      <span class="muted">Impression à</span>
+      <input type="number" id="print-mm" value="100" min="5" max="2000" step="5" style="width:78px">
+      <span class="muted">mm de large →</span>
+      <span id="quality" class="muted">—</span>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------ outils -->
+  <section class="panel">
+    <h2>3. Traitements</h2>
+    <div class="tabs">
+      <button data-tab="bg" class="on">Détourage</button>
+      <button data-tab="up">Agrandir</button>
+      <button data-tab="vec">Vectoriser</button>
+    </div>
+
+    <div class="tool on" id="tab-bg">
+      <div class="field">
+        <label>Méthode</label>
+        <select id="bg-method">
+          <option value="auto">Automatique (détecte le fond)</option>
+          <option value="color">Couleur précise</option>
+          <option value="ai">IA (rembg, si installé)</option>
+        </select>
+      </div>
+      <div class="field" id="bg-color-field" style="display:none">
+        <label>Couleur du fond</label>
+        <input type="color" id="bg-color" value="#ffffff">
+      </div>
+      <div class="field">
+        <label>Tolérance <span class="val" id="bg-tol-v">12</span></label>
+        <input type="range" id="bg-tol" min="2" max="45" step="1" value="12">
+      </div>
+      <div class="field">
+        <label>Douceur du bord <span class="val" id="bg-soft-v">6</span></label>
+        <input type="range" id="bg-soft" min="0" max="30" step="1" value="6">
+      </div>
+      <div class="field">
+        <label>Épaisseur du sujet <span class="val" id="bg-shift-v">0</span> px</label>
+        <input type="range" id="bg-shift" min="-4" max="4" step="1" value="0">
+      </div>
+      <label class="check"><input type="checkbox" id="bg-holes" checked> Rendre transparents les fonds intérieurs</label>
+      <label class="check"><input type="checkbox" id="bg-largest"> Garder uniquement le plus grand sujet</label>
+      <label class="check"><input type="checkbox" id="bg-trim" checked> Rogner les bords vides</label>
+      <button class="action" id="run-bg">Détourer</button>
+      <p class="note" id="bg-note"></p>
+    </div>
+
+    <div class="tool" id="tab-up">
+      <div class="field">
+        <label>Méthode</label>
+        <select id="up-method">
+          <option value="auto">Automatique</option>
+          <option value="vector">Vectorielle (logos, aplats)</option>
+          <option value="edge">Photo (contours + netteté)</option>
+          <option value="lanczos">Lanczos simple</option>
+          <option value="ai">Real-ESRGAN (si installé)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Cible</label>
+        <div class="inline">
+          <select id="up-mode">
+            <option value="scale">Facteur</option>
+            <option value="mm">Taille d'impression</option>
+          </select>
+          <input type="number" id="up-value" value="2" min="0.2" max="20" step="0.5">
+        </div>
+      </div>
+      <div class="field" id="up-dpi-field" style="display:none">
+        <label>Résolution (dpi)</label>
+        <select id="up-dpi">
+          <option>150</option><option selected>300</option><option>600</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Débruitage <span class="val" id="up-dn-v">0</span></label>
+        <input type="range" id="up-dn" min="0" max="1" step="0.05" value="0">
+      </div>
+      <div class="field">
+        <label>Netteté <span class="val" id="up-sh-v">0.45</span></label>
+        <input type="range" id="up-sh" min="0" max="1.5" step="0.05" value="0.45">
+      </div>
+      <button class="action" id="run-up">Agrandir</button>
+      <p class="note" id="up-note"></p>
+    </div>
+
+    <div class="tool" id="tab-vec">
+      <div class="field">
+        <label>Mode</label>
+        <select id="vec-mode">
+          <option value="color">Couleurs</option>
+          <option value="bw">Noir et blanc (trait)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Nombre de couleurs <span class="val" id="vec-col-v">8</span></label>
+        <input type="range" id="vec-colors" min="2" max="32" step="1" value="8">
+      </div>
+      <div class="field">
+        <label>Fidélité du tracé <span class="val" id="vec-det-v">1.0</span> px</label>
+        <input type="range" id="vec-detail" min="0.2" max="4" step="0.1" value="1">
+      </div>
+      <div class="field">
+        <label>Lissage <span class="val" id="vec-sm-v">1.0</span></label>
+        <input type="range" id="vec-smooth" min="0" max="2.5" step="0.1" value="1">
+      </div>
+      <div class="field">
+        <label>Ignorer les détails sous <span class="val" id="vec-area-v">12</span> px²</label>
+        <input type="range" id="vec-area" min="1" max="200" step="1" value="12">
+      </div>
+      <label class="check"><input type="checkbox" id="vec-dropbg" checked> Supprimer la couleur de fond</label>
+      <label class="check"><input type="checkbox" id="vec-replace" checked> Remplacer l'aperçu par le rendu vectoriel</label>
+      <button class="action" id="run-vec">Vectoriser en SVG</button>
+      <p class="note" id="vec-note"></p>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------ montage -->
+  <section class="panel" style="grid-column: 1 / -1">
+    <h2>4. Montage sur la planche</h2>
+    <div class="body" style="display:grid; grid-template-columns: minmax(280px,1fr) minmax(260px,320px) minmax(300px,1.2fr); gap:18px">
+
+      <div>
+        <p class="note" style="margin-top:0">Visuels retenus (cochez-les dans la bibliothèque) — taille et quantité par visuel :</p>
+        <div id="montage-items"></div>
+      </div>
+
+      <div>
+        <div class="field">
+          <label>Format de planche</label>
+          <select id="m-page"></select>
+        </div>
+        <div class="field inline">
+          <div style="flex:1">
+            <label>Orientation</label>
+            <select id="m-orient">
+              <option value="auto">Auto</option>
+              <option value="portrait">Portrait</option>
+              <option value="landscape">Paysage</option>
+            </select>
+          </div>
+          <div style="flex:1">
+            <label>Résolution</label>
+            <select id="m-dpi"><option>150</option><option selected>300</option><option>600</option></select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Disposition</label>
+          <select id="m-layout">
+            <option value="pack">Optimisée (nesting)</option>
+            <option value="grid">Grille régulière</option>
+            <option value="fill">Remplir la planche</option>
+          </select>
+        </div>
+        <div class="field inline">
+          <div style="flex:1"><label>Marge (mm)</label><input type="number" id="m-margin" value="6" min="0" max="60" step="1"></div>
+          <div style="flex:1"><label>Espacement (mm)</label><input type="number" id="m-space" value="3" min="0" max="40" step="0.5"></div>
+        </div>
+        <div class="field inline">
+          <div style="flex:1"><label>Fond</label><input type="color" id="m-bg" value="#ffffff"></div>
+          <div style="flex:1"><label>Découpe (mm)</label><input type="number" id="m-cut" value="0" min="0" max="12" step="0.5"></div>
+        </div>
+        <label class="check"><input type="checkbox" id="m-transparent"> Fond transparent (DTF, flex)</label>
+        <label class="check"><input type="checkbox" id="m-mirror"> Miroir (transfert, sublimation)</label>
+        <label class="check"><input type="checkbox" id="m-marks"> Traits de coupe</label>
+        <label class="check"><input type="checkbox" id="m-reg"> Repères de calage</label>
+        <label class="check"><input type="checkbox" id="m-outline"> Cadres de contrôle</label>
+        <button class="action" id="run-montage">Générer la planche</button>
+      </div>
+
+      <div>
+        <div class="stats" id="m-stats"></div>
+        <div class="links" id="m-links"></div>
+        <div id="sheets"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="busy" id="busy"><div class="spinner"></div></div>
+<div id="toast"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
