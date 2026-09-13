@@ -13,7 +13,11 @@ const Engine = (() => {
   }
 
   function labFromRgb(r, g, b, out, offset) {
-    const lr = SRGB_TO_LINEAR[r], lg = SRGB_TO_LINEAR[g], lb = SRGB_TO_LINEAR[b];
+    // Les appelants peuvent fournir des flottants (image pré-floutée) : la
+    // table n'accepte qu'un index entier 0..255.
+    const lr = SRGB_TO_LINEAR[Math.max(0, Math.min(255, Math.round(r)))];
+    const lg = SRGB_TO_LINEAR[Math.max(0, Math.min(255, Math.round(g)))];
+    const lb = SRGB_TO_LINEAR[Math.max(0, Math.min(255, Math.round(b)))];
     let x = (0.4124564 * lr + 0.3575761 * lg + 0.1804375 * lb) / 0.95047;
     let y = (0.2126729 * lr + 0.7151522 * lg + 0.0721750 * lb);
     let z = (0.0193339 * lr + 0.1191920 * lg + 0.9503041 * lb) / 1.08883;
@@ -338,9 +342,32 @@ const Engine = (() => {
     return { centers, assign, counts, k };
   }
 
+  /* ------------------------------------------------------- limites ---- */
+  /* Safari iOS refuse tout canvas au-delà de 16,7 Mpx et rend alors du
+     vide, sans erreur. On sonde une fois pour dimensionner nos garde-fous. */
+  let canvasLimit = 0;
+  function maxCanvasPixels() {
+    if (canvasLimit) return canvasLimit;
+    canvasLimit = 16e6;
+    try {
+      const probe = document.createElement("canvas");
+      probe.width = 4200; probe.height = 4200;          // 17,6 Mpx
+      const context = probe.getContext("2d");
+      context.fillStyle = "#ff0000";
+      context.fillRect(4195, 4195, 5, 5);
+      const pixel = context.getImageData(4197, 4197, 1, 1).data;
+      if (pixel[0] === 255 && pixel[3] === 255) canvasLimit = 48e6;
+      probe.width = probe.height = 1;                    // libère la mémoire
+    } catch (error) {
+      canvasLimit = 16e6;
+    }
+    return canvasLimit;
+  }
+
   return {
     labFromRgb, toLab, deltaE, hexToRgb, rgbToHex,
     makeImage, cloneImage, canvasOf, resize, rotate90, mirror, crop, trim,
     alphaBounds, flatten, blur, labelComponents, dilate, erode, kmeans,
+    maxCanvasPixels,
   };
 })();

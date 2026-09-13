@@ -8,9 +8,15 @@ const state = {
   assets: [],
   currentId: null,
   sheet: null,          // dernier montage calculé
-  downloads: null,      // capacité d'enregistrement, si le visionneur l'accorde
+  downloads: null,      // capacité d'enregistrement : null = pas encore demandée
+  previewUrls: [],      // URLs d'objet des aperçus de planches, à libérer
   counter: 0,
 };
+
+function releasePreviews() {
+  state.previewUrls.forEach((url) => URL.revokeObjectURL(url));
+  state.previewUrls = [];
+}
 
 /* ------------------------------------------------------------ utils -- */
 function flash(message, isError = false) {
@@ -54,6 +60,13 @@ const toBlob = (canvas, type = "image/png", quality) =>
 
 /** Enregistre un fichier : capacité du visionneur, sinon lien classique. */
 async function saveFile(filename, data) {
+  // On attend la capacité au moment du clic (promesse mémoïsée) plutôt que
+  // de dépendre d'un état posé plus tôt : un clic rapide ne doit pas tomber
+  // sur le lien direct, inerte dans le visionneur.
+  if (state.downloads === null && window.claude && typeof window.claude.use === "function") {
+    try { state.downloads = await window.claude.use("downloads"); } catch (error) { state.downloads = false; }
+    if (!state.downloads) state.downloads = false;
+  }
   if (state.downloads) {
     try {
       await state.downloads.save({ filename, data });
@@ -62,11 +75,12 @@ async function saveFile(filename, data) {
     } catch (error) {
       const code = error && error.code;
       if (code === "declined") return;
+      if (code === "rate_limited") { flash("Une demande est déjà ouverte — réessayez dans un instant", true); return; }
       if (code !== "unavailable" && code !== "not_granted") {
         flash(`Enregistrement impossible : ${(error && error.message) || code}`, true);
         return;
       }
-      state.downloads = null;           // on bascule sur le lien direct
+      state.downloads = false;          // on bascule sur le lien direct
     }
   }
   const blob = data instanceof Blob ? data : new Blob([data]);
@@ -97,22 +111,54 @@ function addAsset(name, source) {
   return asset;
 }
 
+async function decodeFile(file) {
+  let bitmap;
+  try {
+    // Respecte l'orientation EXIF : une photo de téléphone arrive droite.
+    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch (error) {
+    try { bitmap = await createImageBitmap(file); }
+    catch (again) { throw new Error(`« ${file.name} » : format non pris en charge par ce navigateur`); }
+  }
+  // Une image plus grande que ce que le canvas accepte serait rendue vide :
+  // on la ramène sous la limite à l'import, en le disant.
+  const limit = E.maxCanvasPixels();
+  let width = bitmap.width, height = bitmap.height, reduced = false;
+  if (width * height > limit) {
+    const shrink = Math.sqrt(limit / (width * height));
+    width = Math.floor(width * shrink); height = Math.floor(height * shrink);
+    reduced = true;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = width; canvas.height = height;
+  const context = canvas.getContext("2d");
+  context.imageSmoothingQuality = "high";
+  context.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+  return { image: context.getImageData(0, 0, width, height), reduced };
+}
+
 async function importFiles(files) {
-  const list = [...files].filter((file) => file.type.startsWith("image/"));
-  if (!list.length) return;
+  const list = [...files].filter((file) => file.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp|avif|heic)$/i.test(file.name));
+  if (!list.length) return flash("Aucune image reconnue dans ce dépôt", true);
+  let imported = 0, reducedNames = [];
   await busy(`Import de ${list.length} visuel(s)…`, async () => {
     for (const file of list) {
-      const bitmap = await createImageBitmap(file);
-      const canvas = document.createElement("canvas");
-      canvas.width = bitmap.width;
-      canvas.height = bitmap.height;
-      canvas.getContext("2d").drawImage(bitmap, 0, 0);
-      bitmap.close();
-      addAsset(file.name, canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height));
+      try {
+        const { image: decoded, reduced } = await decodeFile(file);
+        addAsset(file.name, decoded);
+        imported++;
+        if (reduced) reducedNames.push(file.name);
+      } catch (error) {
+        flash(error.message, true);
+      }
     }
   });
   renderAll();
-  flash(`${list.length} visuel(s) importé(s)`);
+  if (imported) flash(`${imported} visuel(s) importé(s)`);
+  if (reducedNames.length) {
+    flash(`Réduit à la taille maximale du navigateur : ${reducedNames.join(", ")}`, true);
+  }
 }
 
 function pushVersion(asset, next, label) {
@@ -143,6 +189,7 @@ function renderLibrary() {
     pick.checked = asset.selected;
     pick.id = `pick-${asset.id}`;
     pick.title = "Inclure dans la planche";
+    pick.setAttribute("aria-label", `Inclure ${asset.name} dans la planche`);
     pick.addEventListener("change", () => {
       asset.selected = pick.checked;
       renderJob();
@@ -444,17 +491,28 @@ async function runSheet() {
 
   const sheets = $("sheets");
   sheets.textContent = "";
-  rendered.forEach((page, index) => {
+  releasePreviews();
+  for (const [index, page] of rendered.entries()) {
     const figure = document.createElement("figure");
     const preview = document.createElement("img");
-    preview.src = page.canvas.toDataURL("image/png");
+    // Un aperçu réduit en URL d'objet : pas de dataURL de 20 Mo dans le DOM.
+    const shown = document.createElement("canvas");
+    const ratio = Math.min(1, 1200 / Math.max(page.canvas.width, page.canvas.height));
+    shown.width = Math.round(page.canvas.width * ratio);
+    shown.height = Math.round(page.canvas.height * ratio);
+    const shownContext = shown.getContext("2d");
+    shownContext.imageSmoothingQuality = "high";
+    shownContext.drawImage(page.canvas, 0, 0, shown.width, shown.height);
+    const url = URL.createObjectURL(await toBlob(shown));
+    state.previewUrls.push(url);
+    preview.src = url;
     preview.alt = `Planche ${index + 1}`;
     const caption = document.createElement("figcaption");
     caption.textContent = `Planche ${index + 1} — ${page.canvas.width}×${page.canvas.height} px` +
       (page.reduced ? ` · aperçu à ${page.dpi} dpi, le PDF reste à ${result.options.dpi} dpi` : "");
     figure.append(preview, caption);
     sheets.appendChild(figure);
-  });
+  }
 
   const downloads = $("sheet-downloads");
   downloads.textContent = "";
@@ -617,6 +675,7 @@ function start() {
     state.assets = [];
     state.currentId = null;
     state.sheet = null;
+    releasePreviews();
     $("sheets").innerHTML =
       '<p class="empty-sheet">La planche générée s\'affichera ici, prête à télécharger en PDF ou en PNG.</p>';
     $("sheet-stats").textContent = "";
@@ -633,8 +692,10 @@ function start() {
   // La capacité d'enregistrement arrive après coup ; le lien direct sert d'ici là.
   if (window.claude && typeof window.claude.use === "function") {
     window.claude.use("downloads").then((namespace) => {
-      state.downloads = namespace;
-    }).catch(() => {});
+      state.downloads = namespace || false;
+    }).catch(() => { state.downloads = false; });
+  } else {
+    state.downloads = false;              // page ouverte hors visionneur
   }
 }
 

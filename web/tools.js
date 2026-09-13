@@ -925,19 +925,31 @@ const Tools = (() => {
           .map(([x, y]) => [x * scale, y * scale]))
         .filter((polygon) => polygon.length >= 3);
       if (!polygons.length) return;
+      // Le compositing ne parcourt que la boîte englobante du calque.
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      polygons.forEach((polygon) => polygon.forEach(([x, y]) => {
+        if (x < x0) x0 = x; if (x > x1) x1 = x;
+        if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }));
+      const left = Math.max(0, Math.floor(x0)), right = Math.min(w - 1, Math.ceil(x1));
+      const top = Math.max(0, Math.floor(y0)), bottom = Math.min(h - 1, Math.ceil(y1));
+      if (right < left || bottom < top) return;
       const coverage = rasterize(polygons, w, h);
       const [r, g, b] = layer.color;
-      for (let i = 0; i < w * h; i++) {
-        const source = coverage[i];
-        if (source <= 0) continue;
-        const destination = data[i * 4 + 3] / 255;
-        const outAlpha = source + destination * (1 - source);
-        if (outAlpha <= 1e-6) continue;
-        for (let c = 0; c < 3; c++) {
-          const colour = c === 0 ? r : c === 1 ? g : b;
-          data[i * 4 + c] = (colour * source + data[i * 4 + c] * destination * (1 - source)) / outAlpha;
+      for (let y = top; y <= bottom; y++) {
+        for (let x = left; x <= right; x++) {
+          const i = y * w + x;
+          const source = coverage[i];
+          if (source <= 0) continue;
+          const destination = data[i * 4 + 3] / 255;
+          const outAlpha = source + destination * (1 - source);
+          if (outAlpha <= 1e-6) continue;
+          const keep = destination * (1 - source);
+          data[i * 4] = (r * source + data[i * 4] * keep) / outAlpha;
+          data[i * 4 + 1] = (g * source + data[i * 4 + 1] * keep) / outAlpha;
+          data[i * 4 + 2] = (b * source + data[i * 4 + 2] * keep) / outAlpha;
+          data[i * 4 + 3] = Math.round(outAlpha * 255);
         }
-        data[i * 4 + 3] = Math.round(outAlpha * 255);
       }
     });
     return image;
@@ -1019,7 +1031,8 @@ const Tools = (() => {
   function upscale(image, options = {}) {
     const opt = Object.assign({
       scale: 2, targetWidth: 0, targetHeight: 0, method: "auto",
-      denoise: 0, sharpen: 0.45, vectorColors: 12, maxPixels: 40e6,
+      denoise: 0, sharpen: 0.45, vectorColors: 12,
+      maxPixels: Math.min(40e6, E.maxCanvasPixels()),
     }, options);
 
     const notes = [];
@@ -1083,8 +1096,7 @@ const Tools = (() => {
         gradient[i] = Math.hypot(gx, gy);
       }
     }
-    const sorted = Float32Array.from(gradient).sort();
-    const scale = sorted[Math.floor(sorted.length * 0.97)] || 1;
+    const scale = percentile(gradient, 0.97) || 1;
 
     const out = E.cloneImage(image);
     for (let i = 0; i < count; i++) {
@@ -1097,31 +1109,45 @@ const Tools = (() => {
     return out;
   }
 
+  /** Percentile approché sur un échantillon : évite de trier 40 M de valeurs. */
+  function percentile(values, share) {
+    const step = Math.max(1, Math.floor(values.length / 200000));
+    const sample = [];
+    for (let i = 0; i < values.length; i += step) sample.push(values[i]);
+    sample.sort((a, b) => a - b);
+    return sample[Math.min(sample.length - 1, Math.floor(sample.length * share))];
+  }
+
+  /* Médiane 3×3 par tri à insertion sur 9 valeurs — sans allouer ni
+     appeler Array.sort pour chaque pixel. */
+  const window9 = new Float32Array(9);
+  function median9() {
+    for (let i = 1; i < 9; i++) {
+      const value = window9[i];
+      let j = i - 1;
+      while (j >= 0 && window9[j] > value) { window9[j + 1] = window9[j]; j--; }
+      window9[j + 1] = value;
+    }
+    return window9[4];
+  }
+
   function denoise(image, strength) {
     const { width: w, height: h } = image;
     const count = w * h;
     const out = E.cloneImage(image);
-    const window = [];
     for (let c = 0; c < 3; c++) {
       const channel = new Float32Array(count);
       for (let i = 0; i < count; i++) channel[i] = image.data[i * 4 + c];
-      const median = new Float32Array(count);
       for (let y = 0; y < h; y++) {
+        const up = Math.max(0, y - 1) * w, row = y * w, down = Math.min(h - 1, y + 1) * w;
         for (let x = 0; x < w; x++) {
-          window.length = 0;
-          for (let dy = -1; dy <= 1; dy++) {
-            for (let dx = -1; dx <= 1; dx++) {
-              const sx = Math.min(w - 1, Math.max(0, x + dx));
-              const sy = Math.min(h - 1, Math.max(0, y + dy));
-              window.push(channel[sy * w + sx]);
-            }
-          }
-          window.sort((a, b) => a - b);
-          median[y * w + x] = window[4];
+          const left = Math.max(0, x - 1), right = Math.min(w - 1, x + 1);
+          window9[0] = channel[up + left]; window9[1] = channel[up + x]; window9[2] = channel[up + right];
+          window9[3] = channel[row + left]; window9[4] = channel[row + x]; window9[5] = channel[row + right];
+          window9[6] = channel[down + left]; window9[7] = channel[down + x]; window9[8] = channel[down + right];
+          const i = row + x;
+          out.data[i * 4 + c] = channel[i] * (1 - strength) + median9() * strength;
         }
-      }
-      for (let i = 0; i < count; i++) {
-        out.data[i * 4 + c] = channel[i] * (1 - strength) + median[i] * strength;
       }
     }
     return out;

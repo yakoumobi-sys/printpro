@@ -246,7 +246,7 @@ const Montage = (() => {
   /* ----------------------------------------------------------- rendu -- */
   function renderPage(result, index, options = {}) {
     const opt = result.options;
-    const maxPixels = options.maxPixels || 16e6;
+    const maxPixels = options.maxPixels || Math.min(24e6, E.maxCanvasPixels());
     const [pageW, pageH] = result.pageSizeMm;
     let dpi = options.dpi || opt.dpi;
     let width = mmToPx(pageW, dpi), height = mmToPx(pageH, dpi);
@@ -346,6 +346,7 @@ const Montage = (() => {
     const pagesId = 1;
     const pageIds = [];
     const encoder = new TextEncoder();
+    const encoded = new Map();     // un même visuel n'est encodé qu'une fois
 
     for (let index = 0; index < result.pages.length; index++) {
       const resources = [];
@@ -359,13 +360,17 @@ const Montage = (() => {
       const placements = result.pages[index];
       for (let slot = 0; slot < placements.length; slot++) {
         const placement = placements[slot];
-        let patch = patchFor(result, placement, opt.dpi);
         let xMm = placement.xMm;
-        if (opt.mirror) {
-          xMm = pageW - placement.xMm - placement.wMm;
-          patch = E.mirror(patch);
+        if (opt.mirror) xMm = pageW - placement.xMm - placement.wMm;
+        const key = `${placement.item}|${placement.rotated ? 1 : 0}|` +
+                    `${placement.wMm.toFixed(3)}x${placement.hMm.toFixed(3)}`;
+        let imageId = encoded.get(key);
+        if (!imageId) {
+          let patch = patchFor(result, placement, opt.dpi);
+          if (opt.mirror) patch = E.mirror(patch);
+          imageId = await writeImage(patch, add, quality, opt.background);
+          encoded.set(key, imageId);
         }
-        const imageId = await writeImage(patch, add, quality, opt.background);
         resources.push(`/Im${slot} ${imageId} 0 R`);
         const x = xMm * PT_PER_MM;
         const w = placement.wMm * PT_PER_MM, h = placement.hMm * PT_PER_MM;
@@ -409,8 +414,13 @@ const Montage = (() => {
         `/Length ${deflate.length} >>\nstream\n`), deflate, encoder.encode("\nendstream")));
     }
 
-    // Sans masque possible, on aplatit sur le fond de la planche.
-    const source = maskId ? image : E.flatten(image, E.hexToRgb(background || "#ffffff"));
+    /* Le JPEG doit contenir les couleurs *droites* : un canvas transparent
+       encodé tel quel livre des couleurs prémultipliées (assombries), que le
+       masque du PDF assombrirait une seconde fois — d'où un liseré noir.
+       On rend donc l'image opaque en gardant ses couleurs, les pixels
+       entièrement transparents prenant le fond pour limiter le bruit JPEG. */
+    const paper = E.hexToRgb(background || "#ffffff");
+    const source = maskId ? opaqueCopy(image, paper) : E.flatten(image, paper);
     const jpeg = new Uint8Array(await (await new Promise((resolve) =>
       E.canvasOf(source).toBlob(resolve, "image/jpeg", quality))).arrayBuffer());
     const extra = maskId ? ` /SMask ${maskId} 0 R` : "";
@@ -418,6 +428,16 @@ const Montage = (() => {
       `<< /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} ` +
       `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode ` +
       `/Length ${jpeg.length}${extra} >>\nstream\n`), jpeg, encoder.encode("\nendstream")));
+  }
+
+  function opaqueCopy(image, paper) {
+    const out = E.cloneImage(image);
+    const d = out.data;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] === 0) { d[i] = paper[0]; d[i + 1] = paper[1]; d[i + 2] = paper[2]; }
+      d[i + 3] = 255;
+    }
+    return out;
   }
 
   function alphaBytes(image) {
