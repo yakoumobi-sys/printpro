@@ -6,3 +6,4 @@ venv/
 workspace/
 out/
 *.egg-info/
+.vercel
