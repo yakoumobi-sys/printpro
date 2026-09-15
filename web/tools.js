@@ -229,8 +229,8 @@ const Tools = (() => {
   function vectorize(image, options = {}) {
     const opt = Object.assign({
       colors: 8, mode: "color", detail: 1.0, smoothing: 1.0, minArea: 12,
-      blur: 0, stack: true, dropBackground: true, curves: true,
-      mergeDelta: 6, edgeCleanup: 0.6, fringeShare: 0.02, fringePx: 3,
+      blur: 0, dropBackground: true, curves: true, superSample: 0,
+      mergeDelta: 6, fringeShare: 0.02, fringePx: 3,
     }, options);
 
     const { width: w, height: h } = image;
@@ -252,54 +252,241 @@ const Tools = (() => {
     const opaque = new Uint8Array(count);
     for (let i = 0; i < count; i++) opaque[i] = image.data[i * 4 + 3] > 110 ? 1 : 0;
 
-    let { labels, palette } = quantize(rgb, opaque, w, h, opt);
+    const { labels, palette, centers, lab } = quantize(rgb, opaque, w, h, opt);
     const backgroundIndex = findBackground(labels, w, h);
+    const k = palette.length;
+
+    /* Chaque pixel appartient à sa couleur et, pour la part de mélange
+       d'anti-crénelage, à la couleur voisine la plus proche : ce dosage place
+       le bord entre deux aplats au sous-pixel près, sans lisser les traits fins. */
+    const blend = memberships(image, labels, centers, lab, k, count);
+
+    /* Carte de labels sur-échantillonnée : partition exacte de l'image, donc
+       ni vide ni recouvrement entre couches, sans dilatation qui empâte. */
+    /* À 2×, un trait d'un pixel en diagonale se réduit à des points isolés ;
+       à 3× il reste une bande continue. Le facteur suit la taille de l'image. */
+    const s = opt.superSample || (count <= 0.6e6 ? 3 : count <= 2.2e6 ? 2 : 1);
+    const w2 = w * s, h2 = h * s;
+    /* En cas de quasi-égalité entre deux couleurs (marche diagonale d'un trait
+       d'un pixel), la couleur la moins étendue l'emporte : c'est toujours le
+       trait, jamais l'aplat, qui se joue à un échantillon près. */
+    const extent = new Float64Array(k + 1);
+    for (let i = 0; i < count; i++) {
+      if (labels[i] >= 0) extent[labels[i]]++; else extent[k]++;
+    }
+    const priority = new Float32Array(k + 1);
+    [...extent.keys()].sort((a, b) => extent[b] - extent[a]).forEach((label, rank) => { priority[label] = rank; });
+    const map = superLabels(blend, w, h, s, k, priority);
+    const minArea2 = Math.max(1, Math.round(opt.minArea * s * s));
+    const mapRaw = opt.debug ? Uint8Array.from(map) : null;
+    despeckle(map, w2, h2, minArea2);
 
     /* --- ordre de dessin : la plus grande surface en premier */
-    const areas = new Int32Array(palette.length);
-    for (let i = 0; i < count; i++) if (labels[i] >= 0) areas[labels[i]]++;
+    const areas = new Int32Array(k);
+    for (let i = 0; i < map.length; i++) if (map[i] < k) areas[map[i]]++;
     const order = [...areas.keys()].sort((a, b) => areas[b] - areas[a]);
+
+    /* Empilement géométrique : chaque couche couvre aussi tout ce que les
+       couches suivantes peindront par-dessus. Une jointure est alors toujours
+       « bord anti-crénelé sur aplat plein » : aucun liseré clair, et pas de
+       trait de recouvrement qui épaissirait les formes. */
+    const rankOf = new Int32Array(k + 1).fill(-1);
+    order.forEach((index, rank) => {
+      if (!(opt.dropBackground && index === backgroundIndex)) rankOf[index] = rank;
+    });
 
     const layers = [];
     let nodes = 0;
-    const tolerance = Math.max(0.05, opt.detail);
+    const tolerance = Math.max(0.05, opt.detail) * s;
+    const mask = new Uint8Array(map.length);
     order.forEach((index, rank) => {
       if (opt.dropBackground && index === backgroundIndex) return;
       if (!areas[index]) return;
-      let mask = new Uint8Array(count);
-      for (let i = 0; i < count; i++) mask[i] = labels[i] === index ? 1 : 0;
-      mask = cleanMask(mask, w, h, opt.minArea);
-      if (!mask.some((v) => v)) return;
-      if (opt.stack && rank > 0) mask = E.dilate(mask, w, h, 1, true);
+      for (let i = 0; i < map.length; i++) mask[i] = rankOf[map[i]] >= rank ? 1 : 0;
 
-      const rings = traceMask(mask, w, h);
-      const shapes = groupRings(rings, opt.minArea);
+      const rings = traceMask(mask, w2, h2);
+      const shapes = groupRings(rings, minArea2);
       const paths = [];
       shapes.forEach((shape) => {
         const processed = [];
         shape.forEach((ring) => {
-          let points = smoothRing(ring, opt.smoothing);
-          points = simplifyClosed(points, tolerance);
-          if (points.length >= 3) { processed.push(points); nodes += points.length; }
+          let points = refineRing(ring, opt.smoothing, s);
+          points = simplifyRing(points, tolerance);
+          if (points.length < 3) return;
+          if (s !== 1) points = points.map(([x, y, flag]) => [x / s, y / s, flag]);
+          processed.push(points);
+          nodes += points.length;
         });
         if (processed.length) paths.push(processed);
       });
       if (paths.length) {
-        layers.push({ color: palette[index].map(Math.round), paths, area: areas[index] });
+        layers.push({ color: palette[index].map(Math.round), paths, area: areas[index] / (s * s) });
       }
     });
 
-    return {
+    const out = {
       layers, width: w, height: h, nodes,
       palette: palette.map((c) => c.map(Math.round)),
       shapes: layers.reduce((total, layer) => total + layer.paths.length, 0),
       svg: buildSvg(layers, w, h, opt),
     };
+    if (opt.debug) Object.assign(out, { labels, map, mapRaw, superSample: s, blend });
+    return out;
+  }
+
+  /* Pour chaque pixel : sa couleur (a), la couleur voisine la plus proche (b)
+     et la part t de b qui explique sa teinte — t vaut 0 au cœur d'un aplat et
+     approche 0,5 sur un bord anti-crénelé. L'alpha de la source dose de la
+     même façon la « couleur » transparente. */
+  function memberships(image, labels, centers, lab, k, count) {
+    const first = new Uint8Array(count);
+    const second = new Uint8Array(count);
+    const part = new Float32Array(count);
+    const alpha = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      alpha[i] = image.data[i * 4 + 3] / 255;
+      if (alpha[i] <= 0) { first[i] = k; second[i] = k; continue; }
+      if (labels[i] < 0) {
+        // Pixel semi-transparent hors partition : on le rattache à la couleur
+        // la plus proche, pour que sa part opaque compte quand même.
+        E.labFromRgb(image.data[i * 4], image.data[i * 4 + 1], image.data[i * 4 + 2], lab, i * 3);
+      }
+      let a = labels[i], b = a, t = 0;
+      if (k > 1) {
+        let bestA = Infinity, bestB = Infinity;
+        if (a < 0) {
+          for (let c = 0; c < k; c++) {
+            const d = E.deltaE(lab, i * 3, centers, c * 3);
+            if (d < bestA) { bestA = d; a = c; }
+          }
+        }
+        for (let c = 0; c < k; c++) {
+          if (c === a) continue;
+          const d = E.deltaE(lab, i * 3, centers, c * 3);
+          if (d < bestB) { bestB = d; b = c; }
+        }
+        let axis = 0, along = 0;
+        for (let c = 0; c < 3; c++) {
+          const v = centers[b * 3 + c] - centers[a * 3 + c];
+          axis += v * v;
+          along += (lab[i * 3 + c] - centers[a * 3 + c]) * v;
+        }
+        // t peut dépasser 0,5 : un trait d'un pixel anti-crénelé est un
+        // mélange où sa vraie couleur domine à peine ; c'est le vote des
+        // voisins sur la carte agrandie qui tranche, pas l'étiquette k-means.
+        t = axis > 1e-6 ? Math.max(0, Math.min(1, along / axis)) : 0;
+      } else if (a < 0) {
+        a = 0; b = 0;
+      }
+      first[i] = a; second[i] = b; part[i] = t;
+    }
+    return { first, second, part, alpha, k };
+  }
+
+  /* Carte de labels à l'échelle s : à chaque point, les dosages des quatre
+     pixels sources voisins sont interpolés et la couleur majoritaire l'emporte.
+     La valeur k désigne le transparent. */
+  function superLabels({ first, second, part, alpha, k }, w, h, s, priority) {
+    const w2 = w * s, h2 = h * s;
+    const map = new Uint8Array(w2 * h2);
+    const weights = new Float32Array(k + 1);
+    const touched = new Int32Array(12);
+    const sources = new Int32Array(4), factors = new Float32Array(4);
+    for (let Y = 0; Y < h2; Y++) {
+      const sy = Math.max(0, Math.min(h - 1, (Y + 0.5) / s - 0.5));
+      const y0 = Math.floor(sy), y1 = Math.min(h - 1, y0 + 1), fy = sy - y0;
+      for (let X = 0; X < w2; X++) {
+        const sx = Math.max(0, Math.min(w - 1, (X + 0.5) / s - 0.5));
+        const x0 = Math.floor(sx), x1 = Math.min(w - 1, x0 + 1), fx = sx - x0;
+        sources[0] = y0 * w + x0; factors[0] = (1 - fx) * (1 - fy);
+        sources[1] = y0 * w + x1; factors[1] = fx * (1 - fy);
+        sources[2] = y1 * w + x0; factors[2] = (1 - fx) * fy;
+        sources[3] = y1 * w + x1; factors[3] = fx * fy;
+        let n = 0;
+        for (let q = 0; q < 4; q++) {
+          const weight = factors[q];
+          if (weight <= 0) continue;
+          const index = sources[q];
+          const op = alpha[index];
+          const clear = weight * (1 - op);
+          if (clear > 0) { if (weights[k] === 0) touched[n++] = k; weights[k] += clear; }
+          if (op <= 0) continue;
+          const a = first[index], b = second[index], t = part[index];
+          const own = weight * op * (1 - t), other = weight * op * t;
+          if (weights[a] === 0) touched[n++] = a;
+          weights[a] += own;
+          if (other > 0) { if (weights[b] === 0) touched[n++] = b; weights[b] += other; }
+        }
+        let best = k, bestWeight = -1;
+        for (let j = 0; j < n; j++) {
+          const label = touched[j];
+          const value = weights[label];
+          if (value > bestWeight + 0.02 || (value > bestWeight - 0.02 && priority[label] > priority[best])) {
+            bestWeight = value; best = label;
+          }
+          weights[label] = 0;
+        }
+        map[Y * w2 + X] = best;
+      }
+    }
+    return map;
+  }
+
+  /* Les composantes plus petites que minArea (taches, trous d'épingle)
+     prennent la couleur qui les entoure : la partition reste sans vide. */
+  function despeckle(map, w, h, minArea) {
+    if (minArea <= 1) return;
+    const count = w * h;
+    const region = new Int32Array(count).fill(-1);
+    const sizes = [];
+    const stack = new Int32Array(count);
+    for (let seed = 0; seed < count; seed++) {
+      if (region[seed] >= 0) continue;
+      const id = sizes.length, label = map[seed];
+      let size = 0, top = 0;
+      stack[top++] = seed; region[seed] = id;
+      while (top) {
+        const i = stack[--top];
+        size++;
+        const x = i % w, y = (i / w) | 0;
+        if (x > 0 && region[i - 1] < 0 && map[i - 1] === label) { region[i - 1] = id; stack[top++] = i - 1; }
+        if (x < w - 1 && region[i + 1] < 0 && map[i + 1] === label) { region[i + 1] = id; stack[top++] = i + 1; }
+        if (y > 0 && region[i - w] < 0 && map[i - w] === label) { region[i - w] = id; stack[top++] = i - w; }
+        if (y < h - 1 && region[i + w] < 0 && map[i + w] === label) { region[i + w] = id; stack[top++] = i + w; }
+      }
+      sizes.push(size);
+    }
+    const UNSET = 255;
+    let orphans = 0;
+    for (let i = 0; i < count; i++) if (sizes[region[i]] < minArea) { map[i] = UNSET; orphans++; }
+    if (!orphans) return;
+    // Remplissage depuis les voisins attribués, en largeur d'abord.
+    let top = 0;
+    for (let i = 0; i < count; i++) {
+      if (map[i] === UNSET) continue;
+      const x = i % w, y = (i / w) | 0;
+      if ((x > 0 && map[i - 1] === UNSET) || (x < w - 1 && map[i + 1] === UNSET) ||
+          (y > 0 && map[i - w] === UNSET) || (y < h - 1 && map[i + w] === UNSET)) stack[top++] = i;
+    }
+    let head = 0;
+    while (head < top) {
+      const i = stack[head++];
+      const x = i % w, y = (i / w) | 0, label = map[i];
+      if (x > 0 && map[i - 1] === UNSET) { map[i - 1] = label; stack[top++] = i - 1; }
+      if (x < w - 1 && map[i + 1] === UNSET) { map[i + 1] = label; stack[top++] = i + 1; }
+      if (y > 0 && map[i - w] === UNSET) { map[i - w] = label; stack[top++] = i - w; }
+      if (y < h - 1 && map[i + w] === UNSET) { map[i + w] = label; stack[top++] = i + w; }
+    }
   }
 
   function quantize(rgb, opaque, w, h, opt) {
     const count = w * h;
     const labels = new Int32Array(count).fill(-1);
+
+    const lab = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      if (opaque[i]) E.labFromRgb(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2], lab, i * 3);
+    }
 
     if (opt.mode === "bw") {
       const luminance = new Float32Array(count);
@@ -309,21 +496,26 @@ const Tools = (() => {
         if (opaque[i]) { sum += luminance[i]; total++; }
       }
       const threshold = otsu(luminance, opaque, count) || (total ? sum / total : 128);
+      // Centres = teinte moyenne réelle de chaque classe, pour doser les bords.
+      const centers = new Float32Array(6);
+      const members = [0, 0];
       for (let i = 0; i < count; i++) {
         if (!opaque[i]) continue;
-        labels[i] = luminance[i] <= threshold ? 0 : 1;
+        const c = luminance[i] <= threshold ? 0 : 1;
+        labels[i] = c;
+        members[c]++;
+        for (let ch = 0; ch < 3; ch++) centers[c * 3 + ch] += lab[i * 3 + ch];
       }
-      return { labels, palette: [[0, 0, 0], [255, 255, 255]] };
+      for (let c = 0; c < 2; c++) {
+        if (members[c]) { for (let ch = 0; ch < 3; ch++) centers[c * 3 + ch] /= members[c]; }
+        else { centers[c * 3] = c ? 100 : 0; }
+      }
+      return { labels, palette: [[0, 0, 0], [255, 255, 255]], centers, lab };
     }
 
     const indices = [];
     for (let i = 0; i < count; i++) if (opaque[i]) indices.push(i);
-    if (!indices.length) return { labels, palette: [[0, 0, 0]] };
-
-    const lab = new Float32Array(count * 3);
-    for (const i of indices) {
-      E.labFromRgb(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2], lab, i * 3);
-    }
+    if (!indices.length) return { labels, palette: [[0, 0, 0]], centers: new Float32Array(3), lab };
     const stride = Math.max(1, Math.ceil(indices.length / 40000));
     const sample = [];
     for (let s = 0; s < indices.length; s += stride) sample.push(indices[s]);
@@ -358,12 +550,10 @@ const Tools = (() => {
 
     let result = { labels, palette, centers };
     if (opt.mergeDelta > 0 && palette.length > 1) result = mergeSimilar(result, count, opt.mergeDelta);
-    if (opt.edgeCleanup > 0 && result.palette.length > 1) {
-      result.labels = majorityFilter(result.labels, result.palette.length, w, h, opt.edgeCleanup);
-    }
     if (opt.fringeShare > 0 && result.palette.length > 2) {
       result = dissolveFringes(result, w, h, opt.fringeShare, opt.fringePx);
     }
+    result.lab = lab;
     return result;
   }
 
@@ -433,25 +623,6 @@ const Tools = (() => {
     const out = new Int32Array(labels.length);
     for (let i = 0; i < labels.length; i++) out[i] = labels[i] < 0 ? -1 : remap[labels[i]];
     return { labels: out, palette: merged, centers: new Float32Array(mergedCenters) };
-  }
-
-  /* Les bords anti-crénelés forment des bandes d'une couleur intermédiaire :
-     chaque pixel reprend la couleur qui domine son voisinage. */
-  function majorityFilter(labels, colours, w, h, sigma) {
-    const count = w * h;
-    const bestScore = new Float32Array(count).fill(-1);
-    const bestLabel = new Int32Array(count);
-    const mask = new Float32Array(count);
-    for (let index = 0; index < colours; index++) {
-      for (let i = 0; i < count; i++) mask[i] = labels[i] === index ? 1 : 0;
-      const score = E.blur(mask, w, h, sigma);
-      for (let i = 0; i < count; i++) {
-        if (score[i] > bestScore[i]) { bestScore[i] = score[i]; bestLabel[i] = index; }
-      }
-    }
-    const out = new Int32Array(count);
-    for (let i = 0; i < count; i++) out[i] = labels[i] < 0 ? -1 : bestLabel[i];
-    return out;
   }
 
   /* Un halo est rare ET fin ET sa couleur est une interpolation de ses deux
@@ -561,31 +732,6 @@ const Tools = (() => {
     return best;
   }
 
-  function cleanMask(mask, w, h, minArea) {
-    if (minArea <= 1) return mask;
-    const { labels, sizes } = E.labelComponents(mask, w, h);
-    const out = new Uint8Array(mask.length);
-    for (let i = 0; i < mask.length; i++) {
-      out[i] = mask[i] && sizes[labels[i]] >= minArea ? 1 : 0;
-    }
-    const holes = new Uint8Array(mask.length);
-    for (let i = 0; i < mask.length; i++) holes[i] = out[i] ? 0 : 1;
-    const holeInfo = E.labelComponents(holes, w, h);
-    const border = new Set();
-    for (let x = 0; x < w; x++) {
-      border.add(holeInfo.labels[x]); border.add(holeInfo.labels[(h - 1) * w + x]);
-    }
-    for (let y = 0; y < h; y++) {
-      border.add(holeInfo.labels[y * w]); border.add(holeInfo.labels[y * w + w - 1]);
-    }
-    for (let i = 0; i < mask.length; i++) {
-      const label = holeInfo.labels[i];
-      if (holes[i] && !border.has(label) && holeInfo.sizes[label] < minArea) out[i] = 1;
-    }
-    return out;
-  }
-
-  /* --- contours exacts : on suit les arêtes entre pixels --------------- */
   function traceMask(mask, w, h) {
     const width = w + 2, height = h + 2;
     const padded = new Uint8Array(width * height);
@@ -638,7 +784,7 @@ const Tools = (() => {
       if (!options.length) edges.delete(current);
       const cx = current % stride, cy = (current / stride) | 0;
       const nx = next % stride, ny = (next / stride) | 0;
-      ring.push([cx, cy]);
+      ring.push([cx - 1, cy - 1]);                       // retire la marge de tracé
       direction = [nx - cx, ny - cy];
       current = next;
       if (current === start) return ring;
@@ -696,66 +842,105 @@ const Tools = (() => {
     return shapes.sort((a, b) => Math.abs(ringArea(b[0])) - Math.abs(ringArea(a[0])));
   }
 
-  /* Chaikin puis moyennage conscient des angles : supprime l'escalier de
-     pixels sans arrondir les vrais coins. */
-  function smoothRing(ring, strength) {
+  /* Le contour tracé est un escalier à pas unitaires. On y repère d'abord les
+     vrais coins (virage net sur une fenêtre de quelques pixels, maximum local),
+     puis on lisse tout le reste en laissant ces coins strictement en place :
+     une pointe d'étoile ou l'angle d'une lettre restent vifs et à leur position. */
+  function refineRing(ring, strength, s) {
+    const n = ring.length;
     strength = Math.max(0, Math.min(3, strength));
-    if (strength <= 0) return ring;
-    let points = ring;
-    for (let pass = 0; pass < 2; pass++) {
-      if (points.length < 4 || points.length > 40000) break;
-      const next = [];
-      for (let i = 0; i < points.length; i++) {
-        const [x0, y0] = points[i];
-        const [x1, y1] = points[(i + 1) % points.length];
-        next.push([0.75 * x0 + 0.25 * x1, 0.75 * y0 + 0.25 * y1]);
-        next.push([0.25 * x0 + 0.75 * x1, 0.25 * y0 + 0.75 * y1]);
+    const flags = new Uint8Array(n);
+    const W = Math.max(2, Math.round(3 * s));
+    const half = Math.max(1, W >> 1);
+    if (n >= 4 * W) {
+      const turnAt = (window) => {
+        const out = new Float32Array(n);
+        for (let i = 0; i < n; i++) {
+          const before = ring[(i - window + n) % n], after = ring[(i + window) % n];
+          const inX = ring[i][0] - before[0], inY = ring[i][1] - before[1];
+          const outX = after[0] - ring[i][0], outY = after[1] - ring[i][1];
+          const lengths = (Math.hypot(inX, inY) || 1e-9) * (Math.hypot(outX, outY) || 1e-9);
+          out[i] = Math.acos(Math.max(-1, Math.min(1, (inX * outX + inY * outY) / lengths)));
+        }
+        return out;
+      };
+      const turn = turnAt(W), tight = turnAt(half);
+      const threshold = 0.85;                                   // ≈ 49°
+      for (let i = 0; i < n; i++) {
+        if (turn[i] <= threshold) continue;
+        // Un vrai coin concentre tout son virage sur le sommet : vu de plus
+        // près il tourne autant. Un arrondi étale le sien, donc la mesure
+        // rapprochée en retient à peine la moitié — c'est ce qui distingue
+        // l'angle d'une lettre de la panse d'un « P ».
+        if (tight[i] < 0.62 * turn[i]) continue;
+        let peak = true;
+        for (let d = -W; d <= W && peak; d++) {
+          if (!d) continue;
+          const other = turn[(i + d + n) % n];
+          if (other > turn[i] || (other === turn[i] && d < 0)) peak = false;
+        }
+        if (peak) flags[i] = 1;
       }
-      points = next;
     }
-    if (points.length < 12) return points;
 
-    const n = points.length, window = 4;
-    const weights = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      const previous = points[(i - window + n) % n];
-      const following = points[(i + window) % n];
-      const inX = points[i][0] - previous[0], inY = points[i][1] - previous[1];
-      const outX = following[0] - points[i][0], outY = following[1] - points[i][1];
-      const inLength = Math.hypot(inX, inY) || 1e-9;
-      const outLength = Math.hypot(outX, outY) || 1e-9;
-      const cosine = (inX / inLength) * (outX / outLength) + (inY / inLength) * (outY / outLength);
-      weights[i] = Math.min(1, Math.max(0, (cosine - 0.5) / 0.4));   // 0 = vrai coin
-    }
-    const rounds = Math.round(3 * strength);
+    let points = ring.map(([x, y], i) => [x, y, flags[i]]);
+    const rounds = Math.round(4 * strength);
     for (let round = 0; round < rounds; round++) {
       const next = new Array(n);
       for (let i = 0; i < n; i++) {
+        if (flags[i]) { next[i] = points[i]; continue; }
         const previous = points[(i - 1 + n) % n], following = points[(i + 1) % n];
-        const bx = 0.25 * previous[0] + 0.5 * points[i][0] + 0.25 * following[0];
-        const by = 0.25 * previous[1] + 0.5 * points[i][1] + 0.25 * following[1];
-        const weight = weights[i];
-        next[i] = [points[i][0] * (1 - weight) + bx * weight,
-                   points[i][1] * (1 - weight) + by * weight];
+        next[i] = [0.25 * previous[0] + 0.5 * points[i][0] + 0.25 * following[0],
+                   0.25 * previous[1] + 0.5 * points[i][1] + 0.25 * following[1], 0];
       }
       points = next;
     }
     return points;
   }
 
-  function simplifyClosed(points, epsilon) {
-    if (points.length <= 4) return points;
-    let centroidX = 0, centroidY = 0;
-    points.forEach(([x, y]) => { centroidX += x; centroidY += y; });
-    centroidX /= points.length; centroidY /= points.length;
-    let anchor = 0, anchorDistance = -1;
-    points.forEach(([x, y], index) => {
-      const distance = (x - centroidX) ** 2 + (y - centroidY) ** 2;
-      if (distance > anchorDistance) { anchorDistance = distance; anchor = index; }
-    });
-    const rolled = points.slice(anchor).concat(points.slice(0, anchor));
-    const simplified = rdp(rolled.concat([rolled[0]]), epsilon);
-    const result = simplified.length > 3 ? simplified.slice(0, -1) : rolled;
+  /* Simplification qui ne franchit jamais un coin : chaque arc entre deux
+     coins est simplifié séparément, les coins eux-mêmes sont conservés. */
+  function simplifyRing(points, epsilon) {
+    const n = points.length;
+    if (n <= 4) return points;
+    /* L'écart toléré reste petit devant la forme elle-même : sans cela, la
+       contre-forme d'un « P » de 15 px se réduit à un pentagone alors que le
+       même écart est invisible sur une grande aplat. */
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [x, y] of points) {
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    }
+    epsilon = Math.min(epsilon, Math.max(0.2, Math.min(maxX - minX, maxY - minY) * 0.06));
+    const corners = [];
+    for (let i = 0; i < n; i++) if (points[i][2]) corners.push(i);
+    let result;
+    if (!corners.length) {
+      let centroidX = 0, centroidY = 0;
+      points.forEach(([x, y]) => { centroidX += x; centroidY += y; });
+      centroidX /= n; centroidY /= n;
+      let anchor = 0, anchorDistance = -1;
+      points.forEach(([x, y], index) => {
+        const distance = (x - centroidX) ** 2 + (y - centroidY) ** 2;
+        if (distance > anchorDistance) { anchorDistance = distance; anchor = index; }
+      });
+      const rolled = points.slice(anchor).concat(points.slice(0, anchor));
+      const simplified = rdp(rolled.concat([rolled[0]]), epsilon);
+      result = simplified.length > 3 ? simplified.slice(0, -1) : rolled;
+    } else {
+      result = [];
+      for (let c = 0; c < corners.length; c++) {
+        const start = corners[c], end = corners[(c + 1) % corners.length];
+        const arc = [];
+        for (let i = start, guard = 0; guard <= n; i = (i + 1) % n, guard++) {
+          arc.push(points[i]);
+          if (i === end && arc.length > 1) break;
+        }
+        const simplified = rdp(arc, epsilon);
+        simplified.pop();                                       // le coin suivant ouvre l'arc suivant
+        result.push(...simplified);
+      }
+    }
     return dropClose(result, Math.max(0.35, epsilon * 0.6));
   }
 
@@ -793,13 +978,16 @@ const Tools = (() => {
     const kept = [points[0]];
     for (let i = 1; i < points.length; i++) {
       const last = kept[kept.length - 1];
-      if (Math.hypot(points[i][0] - last[0], points[i][1] - last[1]) >= minDistance) {
-        kept.push(points[i]);
-      }
+      const close = Math.hypot(points[i][0] - last[0], points[i][1] - last[1]) < minDistance;
+      if (!close) kept.push(points[i]);
+      else if (points[i][2] && !last[2]) kept[kept.length - 1] = points[i];   // le coin prime
     }
     if (kept.length >= 4) {
       const first = kept[0], last = kept[kept.length - 1];
-      if (Math.hypot(last[0] - first[0], last[1] - first[1]) < minDistance) kept.pop();
+      if (Math.hypot(last[0] - first[0], last[1] - first[1]) < minDistance) {
+        if (last[2] && !first[2]) kept[0] = last;
+        kept.pop();
+      }
     }
     return kept.length >= 4 ? kept : points;
   }
@@ -822,7 +1010,8 @@ const Tools = (() => {
       const inX = ring[i][0] - farPrevious[0], inY = ring[i][1] - farPrevious[1];
       const outX = farNext[0] - ring[i][0], outY = farNext[1] - ring[i][1];
       const inLength = Math.hypot(inX, inY) || 1e-9, outLength = Math.hypot(outX, outY) || 1e-9;
-      corner[i] = ((inX / inLength) * (outX / outLength) + (inY / inLength) * (outY / outLength)) < 0.2;
+      corner[i] = ring[i][2] === 1 ||
+        ((inX / inLength) * (outX / outLength) + (inY / inLength) * (outY / outLength)) < 0.2;
     }
     const clamp = (vector, chord) => {
       const length = Math.hypot(vector[0], vector[1]);
@@ -955,6 +1144,38 @@ const Tools = (() => {
     return image;
   }
 
+  /* Rendu du tracé par le moteur SVG du navigateur : strictement ce que
+     l'export produira (courbes, traits de jointure, anti-crénelage). En
+     l'absence de DOM, repli sur le rastériseur maison. */
+  async function renderVector(result, scale, opt = {}) {
+    const w = Math.max(1, Math.round(result.width * scale));
+    const h = Math.max(1, Math.round(result.height * scale));
+    try {
+      if (typeof document === "undefined" || typeof Image === "undefined") throw new Error("no DOM");
+      const blob = new Blob([result.svg], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      try {
+        const img = new Image();
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = () => reject(new Error("SVG non décodé"));
+          img.src = url;
+        });
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, w, h);
+        const out = ctx.getImageData(0, 0, w, h);
+        canvas.width = canvas.height = 1;
+        return out;
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      return renderLayers(result.layers, result.width, result.height, scale, opt);
+    }
+  }
+
   function rasterize(polygons, width, height) {
     const coverage = new Float32Array(width * height);
     const x0 = [], y0 = [], x1 = [], y1 = [];
@@ -1028,7 +1249,7 @@ const Tools = (() => {
     return seen.size > Math.max(600, sampled * 0.004);
   }
 
-  function upscale(image, options = {}) {
+  async function upscale(image, options = {}) {
     const opt = Object.assign({
       scale: 2, targetWidth: 0, targetHeight: 0, method: "auto",
       denoise: 0, sharpen: 0.45, vectorColors: 12,
@@ -1058,7 +1279,7 @@ const Tools = (() => {
     if (opt.denoise > 0) source = denoise(source, opt.denoise);
 
     if (method === "vector") {
-      const rendered = vectorUpscale(source, width, height, opt);
+      const rendered = await vectorUpscale(source, width, height, opt);
       if (rendered) return { image: rendered, method, factor, notes, width, height };
       method = "edge";
       notes.push("vectorisation non concluante, repli sur « photo »");
@@ -1153,16 +1374,16 @@ const Tools = (() => {
     return out;
   }
 
-  function vectorUpscale(image, width, height, opt) {
+  async function vectorUpscale(image, width, height, opt) {
     const pixels = image.width * image.height;
     const result = vectorize(image, {
       colors: Math.max(2, opt.vectorColors), detail: 0.9, smoothing: 1.2,
-      blur: 0.7, minArea: Math.max(10, Math.round(pixels / 12000)),
-      mergeDelta: 7, edgeCleanup: 0.8, dropBackground: true,
+      minArea: Math.max(10, Math.round(pixels / 12000)),
+      mergeDelta: 7, dropBackground: true,
     });
     if (!result.layers.length) return null;
     const scale = (width / image.width + height / image.height) / 2;
-    let rendered = renderLayers(result.layers, image.width, image.height, scale);
+    let rendered = await renderVector(result, scale);
     if (rendered.width !== width || rendered.height !== height) {
       rendered = E.resize(rendered, width, height);
     }
@@ -1194,7 +1415,7 @@ const Tools = (() => {
   }
 
   return {
-    removeBackground, vectorize, renderLayers, upscale, printQuality,
+    removeBackground, vectorize, renderLayers, renderVector, upscale, printQuality,
     isPhotographic, ringToPath,
   };
 })();

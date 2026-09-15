@@ -63,7 +63,8 @@ class App:
         self.play.stop()
 
     def real_errors(self):
-        return [e for e in self.errors if "ERR_CONNECTION" not in e and "fonts.g" not in e]
+        return [e for e in self.errors if "ERR_CONNECTION" not in e and "fonts.g" not in e
+                and "Failed to load resource" not in e]   # polices Google : réseau du bac à sable
 
     # ---- actions
     def wait_idle(self, timeout=240000):

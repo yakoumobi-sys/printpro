@@ -382,8 +382,8 @@ async function runVectorize() {
     : result.svg;
 
   if ($("vec-replace").checked) {
-    const rendered = await busy("Rendu du tracé…", async () => Tools.renderLayers(
-      result.layers, result.width, result.height, 1 / reduction, { smoothing }));
+    const rendered = await busy("Rendu du tracé…", async () => Tools.renderVector(
+      result, 1 / reduction, { smoothing }));
     if (rendered) pushVersion(asset, rendered, `vectorisation · ${result.shapes} formes`);
   }
   const kilobytes = (new Blob([asset.svg]).size / 1024).toFixed(1);

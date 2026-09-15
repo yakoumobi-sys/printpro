@@ -111,10 +111,10 @@ p.select_option("#vec-mode", "color"); app.set_range("vec-colors", 6); p.uncheck
 timings["vectorisation 420×300, 6 couleurs"] = app.run("run-vec")
 c = app.current()
 R.check("aperçu non remplacé : version inchangée, SVG disponible", c.versions == 1 and c.hasSvg and not p.is_disabled("#save-svg"))
-error = p.evaluate("""() => {
+error = p.evaluate("""async () => {
   const a = state.assets.find(x => x.id === state.currentId); const src = a.versions[a.versions.length-1];
   const r = Tools.vectorize(src, { colors: 6, dropBackground: false });
-  const out = Tools.renderLayers(r.layers, r.width, r.height, 1);
+  const out = await Tools.renderVector(r, 1);
   let sum = 0, n = 0;
   for (let i = 0; i < src.data.length; i += 4) {
     const a1 = out.data[i+3] / 255;
@@ -126,6 +126,90 @@ R.check("fidélité du tracé (fond conservé) : erreur moyenne < 9/255", error 
 p.check("#vec-replace"); p.select_option("#vec-mode", "bw"); app.run("run-vec")
 R.check("mode noir et blanc : rendu remplacé, historique noté", "vectorisation" in app.current().history[-1])
 p.click("#undo")
+
+# ---------------------------------------------------------------- qualité du tracé
+app.import_files("/home/user/printpro/samples/etoile.png")
+q = p.evaluate("""async () => {
+  const a = state.assets.find(x => x.id === state.currentId); const src = a.versions[a.versions.length-1];
+  const w = src.width, h = src.height;
+  const r = Tools.vectorize(src, { colors: 6, dropBackground: false });
+  const out = await Tools.renderVector(r, 1);
+  const isTurquoise = (d, i) => d[i] < 90 && d[i+1] > 140 && d[i+2] > 130;
+  const isBrown = (d, i) => d[i] < 200 && d[i+1] < 150;   // ≥ ~40 % de brun (bande d'un pixel anti-crénelée)
+  // sommet de la pointe haute : première ligne non turquoise
+  const top = (d) => { for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = (y*w+x)*4; if (d[i+3] > 128 && !isTurquoise(d, i)) return y + (x / w); } return -1; };
+  let brownSrc = 0, brownOut = 0, gaps = 0;
+  for (let i = 0; i < src.data.length; i += 4) {
+    if (isBrown(src.data, i)) brownSrc++;
+    if (isBrown(out.data, i)) brownOut++;
+    if (out.data[i+3] < 250) gaps++;
+  }
+  const brownLayer = r.layers.find(l => l.color[0] < 130 && l.color[2] < 60);
+  return { tipSrc: top(src.data), tipOut: top(out.data), brownSrc, brownOut, gaps, brownArea: brownLayer ? brownLayer.area : 0,
+           nodes: r.nodes, shapes: r.shapes };
+}""")
+R.check("tracé : pointe de l'étoile à sa place (écart ≤ 1,5 px)", abs(q["tipSrc"] - q["tipOut"]) <= 1.5, f"source y={q['tipSrc']:.1f}, tracé y={q['tipOut']:.1f}")
+outline = q["brownArea"] / max(1, q["brownSrc"])
+R.check("tracé : le contour d'un pixel est conservé sans épaissir (aire à ±20 %)",
+        0.8 <= outline <= 1.2, f"couche {q['brownArea']:.0f} px² pour {q['brownSrc']} px source")
+R.check("tracé : aucun vide entre les couches", q["gaps"] == 0, f"{q['gaps']} px non couverts")
+R.check("tracé : étoile compacte (< 80 nœuds)", q["nodes"] < 80, f"{q['nodes']} nœuds, {q['shapes']} formes")
+
+app.import_files("/home/user/printpro/samples/logo.png")
+q = p.evaluate("""async () => {
+  const a = state.assets.find(x => x.id === state.currentId); const src = a.versions[a.versions.length-1];
+  const w = src.width, h = src.height;
+  const r = Tools.vectorize(src, { colors: 6, dropBackground: false });
+  const out = await Tools.renderVector(r, 1);
+  // bande du texte : tiers inférieur de l'image
+  let darkSrc = 0, darkOut = 0;
+  for (let y = Math.round(h * 0.6); y < h; y++) for (let x = 0; x < w; x++) {
+    const i = (y*w+x)*4;
+    if (src.data[i] + src.data[i+1] + src.data[i+2] < 240) darkSrc++;
+    if (out.data[i] + out.data[i+1] + out.data[i+2] < 240) darkOut++;
+  }
+  return { darkSrc, darkOut };
+}""")
+ratio = q["darkOut"] / max(1, q["darkSrc"])
+R.check("tracé : le texte garde son épaisseur (encre à ±15 %)", 0.85 <= ratio <= 1.15, f"encre tracé/source = {ratio:.2f}")
+
+# Contre-formes : les trous des lettres doivent rester ouverts ET arrondis.
+counters = p.evaluate("""async () => {
+  const a = state.assets.find(x => x.id === state.currentId); const src = a.versions[a.versions.length-1];
+  const w = src.width, h = src.height;
+  const r = Tools.vectorize(src, { colors: 6, dropBackground: false });
+  const out = await Tools.renderVector(r, 1);
+  // Composantes claires entièrement entourées de sombre, dans la bande du texte.
+  const y0 = Math.round(h * 0.6);
+  const holes = (d) => {
+    const light = new Uint8Array(w * h);
+    for (let y = y0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = (y*w+x)*4; light[y*w+x] = (d[i] + d[i+1] + d[i+2] >= 420) ? 1 : 0;
+    }
+    // supprime le fond : composantes touchant le bord de la bande
+    const seen = new Uint8Array(w * h); const sizes = [];
+    for (let y = y0; y < h; y++) for (let x = 0; x < w; x++) {
+      const seed = y*w+x; if (seen[seed] || !light[seed]) continue;
+      const stack = [seed]; seen[seed] = 1; let n = 0, edge = false;
+      while (stack.length) { const i = stack.pop(); n++;
+        const cx = i % w, cy = (i / w) | 0;
+        if (cx === 0 || cx === w-1 || cy === y0 || cy === h-1) edge = true;
+        for (const j of [cx>0?i-1:-1, cx<w-1?i+1:-1, cy>y0?i-w:-1, cy<h-1?i+w:-1])
+          if (j >= 0 && !seen[j] && light[j]) { seen[j] = 1; stack.push(j); } }
+      if (!edge && n >= 4) sizes.push(n);
+    }
+    return sizes.sort((x, y) => y - x);
+  };
+  const a1 = holes(src.data), b1 = holes(out.data);
+  const sum = (v) => v.reduce((s, n) => s + n, 0);
+  return { srcCount: a1.length, outCount: b1.length, srcArea: sum(a1), outArea: sum(b1) };
+}""")
+kept = counters["outCount"] / max(1, counters["srcCount"])
+area = counters["outArea"] / max(1, counters["srcArea"])
+R.check("tracé : les contre-formes des lettres restent ouvertes", kept >= 0.9,
+        f"{counters['outCount']}/{counters['srcCount']} trous")
+R.check("tracé : contre-formes arrondies, pas rognées en facettes (aire à ±25 %)",
+        0.75 <= area <= 1.25, f"aire tracé/source = {area:.2f}")
 
 # ---------------------------------------------------------------- 20 Mpx
 t0 = time.perf_counter(); app.import_files(FX / "grand-20mpx.jpg"); timings["import 20 Mpx"] = time.perf_counter() - t0
