@@ -775,11 +775,18 @@ async function runSheet() {
   state.sheet.rendered = rendered;
 
   const [pageW, pageH] = result.pageSizeMm;
+  const pageAreaMm2 = pageW * pageH;
+  const totalAreaMm2 = pageAreaMm2 * result.pages.length;
+  const totalItemPixels = result.placed * result.requested;
+  const itemsPerPage = Math.ceil(result.placed / result.pages.length);
+
   $("sheet-stats").innerHTML = [
     `<span class="stat"><b>${result.placed}</b>/${result.requested} placés</span>`,
-    `<span class="stat"><b>${result.pages.length}</b> planche(s)</span>`,
+    `<span class="stat"><b>${result.pages.length}</b> planche(s) · ${itemsPerPage} items/page</span>`,
     `<span class="stat">${pageW}×${pageH} mm</span>`,
-    `<span class="stat">remplissage <b>${Math.round(result.efficiency * 100)} %</b></span>`,
+    `<span class="stat">Surface: <b>${Math.round(totalAreaMm2 / 1000)} dm²</b></span>`,
+    `<span class="stat">Remplissage <b>${Math.round(result.efficiency * 100)} %</b></span>`,
+    `<span class="stat">Débord <b>${Math.round((100 - result.efficiency * 100) * 10) / 10} %</b></span>`,
     `<span class="stat">${result.options.dpi} dpi</span>`,
   ].join("");
 
