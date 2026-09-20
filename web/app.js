@@ -13,6 +13,7 @@ const state = {
   counter: 0,
   zoomLevel: 100,       // zoom actuel en pourcentage
   theme: "auto",        // thème: auto | light | dark
+  batchMode: false,     // mode traitement par lot
 };
 
 function releasePreviews() {
@@ -396,11 +397,9 @@ function toggleTheme() {
 }
 
 /* ----------------------------------------------------- traitements -- */
-async function runCut() {
-  const asset = current();
-  if (!asset) return flash("Choisissez un visuel", true);
+async function applyCutToAsset(asset) {
   const method = $("cut-method").value;
-  const result = await busy("Détourage…", async () => Tools.removeBackground(image(asset), {
+  const result = await Tools.removeBackground(image(asset), {
     method,
     color: method === "color" ? $("cut-color").value : null,
     tolerance: Number($("cut-tol").value),
@@ -409,13 +408,36 @@ async function runCut() {
     keepHoles: $("cut-holes").checked,
     largestOnly: $("cut-largest").checked,
     trim: $("cut-trim").checked,
-  }));
-  if (!result) return;
+  });
+  if (!result) return false;
   pushVersion(asset, result.image, "détourage");
   asset.svg = null;
+  return true;
+}
+
+async function runCut() {
+  if (state.batchMode) {
+    const chosen = state.assets.filter((asset) => asset.selected);
+    if (!chosen.length) return flash("Sélectionnez au moins un visuel", true);
+
+    let count = 0;
+    for (const asset of chosen) {
+      const result = await busy(`Détourage (${count + 1}/${chosen.length})…`,
+        () => applyCutToAsset(asset));
+      if (result) count++;
+    }
+    $("cut-note").textContent = `Détourage appliqué à ${count}/${chosen.length} visuels`;
+    renderAll();
+    return;
+  }
+
+  const asset = current();
+  if (!asset) return flash("Choisissez un visuel", true);
+
+  const result = await busy("Détourage…", () => applyCutToAsset(asset));
+  if (!result) return;
   $("cut-note").textContent =
-    `Sujet : ${Math.round(result.coverage * 100)} % de l'image. ` +
-    `Fond retiré : ${result.backgroundColors.map((c) => E.rgbToHex(c)).join(", ")}.`;
+    `Sujet détecté automatiquement · Fond retiré.`;
   renderAll();
 }
 
@@ -869,6 +891,18 @@ function start() {
   });
 
   $("theme-toggle").addEventListener("click", toggleTheme);
+
+  $("batch-mode").addEventListener("change", () => {
+    state.batchMode = $("batch-mode").checked;
+    const statusEl = $("batch-status");
+    if (state.batchMode) {
+      statusEl.textContent = "✓ Traitement par lot activé (sélectionnez plusieurs visuels)";
+      statusEl.style.color = "var(--ok)";
+    } else {
+      statusEl.textContent = "Traitement par lot (sélectionnez plusieurs visuels)";
+      statusEl.style.color = "inherit";
+    }
+  });
 
   $("reset").addEventListener("click", () => {
     state.assets = [];
