@@ -235,15 +235,12 @@ function renderLibrary() {
 function renderStage() {
   const asset = current();
   const stage = $("stage");
-  stage.textContent = "";
   $("save-svg").disabled = !asset || !asset.svg;
   $("undo").disabled = !asset || asset.versions.length < 2;
 
   if (!asset) {
-    const hint = document.createElement("p");
-    hint.className = "hint";
-    hint.textContent = "Déposez un visuel pour commencer.";
-    stage.appendChild(hint);
+    stage.querySelector(".hint").hidden = false;
+    $("compare").hidden = true;
     $("dims").textContent = "—";
     $("trail").textContent = "";
     updateQuality();
@@ -254,7 +251,24 @@ function renderStage() {
   const shown = document.createElement("img");
   shown.src = previewUrl(source, 1100);
   shown.alt = asset.name;
-  stage.appendChild(shown);
+
+  const compareEl = $("compare");
+  const singleEl = $("stage-single");
+  stage.querySelector(".hint").hidden = true;
+
+  if (asset.versions.length > 1) {
+    $("stage-after").src = shown.src;
+    const before = asset.versions[asset.versions.length - 2];
+    $("stage-before").src = previewUrl(before, 1100);
+    compareEl.hidden = false;
+    singleEl.hidden = true;
+    initCompareSlider();
+  } else {
+    compareEl.hidden = true;
+    singleEl.hidden = false;
+    singleEl.textContent = "";
+    singleEl.appendChild(shown);
+  }
 
   let transparent = false;
   for (let i = 3; i < source.data.length; i += 4) {
@@ -274,6 +288,45 @@ function renderStage() {
     trail.appendChild(tag);
   });
   updateQuality();
+}
+
+function initCompareSlider() {
+  const wrapper = $("compare").querySelector(".compare-wrapper");
+  const before = $("stage-before");
+  const slider = $("compare-slider");
+
+  const update = (e) => {
+    const rect = wrapper.getBoundingClientRect();
+    let x = e.clientX - rect.left;
+    if (e.touches) x = e.touches[0].clientX - rect.left;
+    x = Math.max(0, Math.min(x, rect.width));
+    const pct = (x / rect.width) * 100;
+
+    before.style.width = pct + "%";
+    slider.style.left = pct + "%";
+  };
+
+  const startDrag = () => {
+    document.addEventListener("mousemove", update);
+    document.addEventListener("touchmove", update, { passive: true });
+    document.addEventListener("mouseup", stopDrag);
+    document.addEventListener("touchend", stopDrag);
+  };
+
+  const stopDrag = () => {
+    document.removeEventListener("mousemove", update);
+    document.removeEventListener("touchmove", update);
+    document.removeEventListener("mouseup", stopDrag);
+    document.removeEventListener("touchend", stopDrag);
+  };
+
+  slider.addEventListener("mousedown", startDrag);
+  slider.addEventListener("touchstart", startDrag);
+  wrapper.addEventListener("click", update);
+
+  // Init à 50%
+  before.style.width = "50%";
+  slider.style.left = "50%";
 }
 
 function updateQuality() {
