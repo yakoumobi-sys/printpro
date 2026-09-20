@@ -492,6 +492,37 @@ input[type="color"] {
   font-weight: 600;
 }
 
+.preset-controls {
+  display: flex;
+  gap: 6px;
+  margin-top: 9px;
+}
+.preset-input {
+  flex: 1;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.preset-input::placeholder {
+  color: var(--ink-soft);
+}
+.preset-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.preset-select {
+  flex: 1;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
 .ghost {
   border: 1px solid var(--line);
   background: var(--surface);
@@ -767,6 +798,13 @@ input[type="color"] {
       <label class="check"><input type="checkbox" id="cut-holes" checked> Fonds intérieurs transparents</label>
       <label class="check"><input type="checkbox" id="cut-largest"> Garder le plus grand sujet seul</label>
       <label class="check"><input type="checkbox" id="cut-trim" checked> Rogner les bords vides</label>
+      <div class="preset-controls">
+        <input type="text" id="cut-preset-name" placeholder="Nom du préset" class="preset-input">
+        <button class="ghost" id="cut-save-preset" type="button">Enregistrer</button>
+        <select id="cut-presets" class="preset-select">
+          <option value="">Charger un préset</option>
+        </select>
+      </div>
       <button class="go" id="run-cut" type="button">Détourer</button>
       <p class="note" id="cut-note"></p>
     </div>

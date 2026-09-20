@@ -14,6 +14,12 @@ const state = {
   zoomLevel: 100,       // zoom actuel en pourcentage
   theme: "auto",        // thème: auto | light | dark
   batchMode: false,     // mode traitement par lot
+  presets: {            // présets enregistrés par outil
+    cut: {},
+    up: {},
+    vec: {},
+    transform: {}
+  }
 };
 
 function releasePreviews() {
@@ -394,6 +400,74 @@ function toggleTheme() {
   const currentIndex = themes.indexOf(state.theme);
   const nextTheme = themes[(currentIndex + 1) % themes.length];
   applyTheme(nextTheme);
+}
+
+function savePreset(toolName, presetName) {
+  if (!presetName || presetName.trim() === "") {
+    flash("Entrez un nom de préset", true);
+    return;
+  }
+
+  const settings = {};
+  const toolId = toolName === "cut" ? "cut" : toolName === "up" ? "up" : toolName === "vec" ? "vec" : "transform";
+
+  if (toolName === "cut") {
+    settings.method = $("cut-method").value;
+    settings.color = $("cut-color").value;
+    settings.tol = $("cut-tol").value;
+    settings.soft = $("cut-soft").value;
+    settings.shift = $("cut-shift").value;
+    settings.holes = $("cut-holes").checked;
+    settings.largest = $("cut-largest").checked;
+    settings.trim = $("cut-trim").checked;
+  }
+
+  state.presets[toolId][presetName] = settings;
+  localStorage.setItem(`printpro-presets-${toolId}`, JSON.stringify(state.presets[toolId]));
+  flash(`Préset "${presetName}" enregistré`);
+  updatePresetList(toolName);
+  $(`${toolId}-preset-name`).value = "";
+}
+
+function loadPreset(toolName, presetName) {
+  const toolId = toolName === "cut" ? "cut" : toolName === "up" ? "up" : toolName === "vec" ? "vec" : "transform";
+  const settings = state.presets[toolId][presetName];
+
+  if (!settings) return;
+
+  if (toolName === "cut") {
+    $("cut-method").value = settings.method || "auto";
+    $("cut-color").value = settings.color || "#ffffff";
+    $("cut-tol").value = settings.tol || 12;
+    $("cut-soft").value = settings.soft || 6;
+    $("cut-shift").value = settings.shift || 0;
+    $("cut-holes").checked = settings.holes !== false;
+    $("cut-largest").checked = settings.largest === true;
+    $("cut-trim").checked = settings.trim !== false;
+
+    // Update value displays
+    $("cut-tol-v").textContent = $("cut-tol").value;
+    $("cut-soft-v").textContent = $("cut-soft").value;
+    $("cut-shift-v").textContent = $("cut-shift").value + " px";
+    $("cut-color-field").hidden = settings.method !== "color";
+  }
+
+  flash(`Préset "${presetName}" chargé`);
+}
+
+function updatePresetList(toolName) {
+  const toolId = toolName === "cut" ? "cut" : toolName === "up" ? "up" : toolName === "vec" ? "vec" : "transform";
+  const selectId = `${toolId}-presets`;
+  const select = $(selectId);
+  if (!select) return;
+
+  select.innerHTML = '<option value="">Charger un préset</option>';
+  Object.keys(state.presets[toolId]).forEach((name) => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    select.appendChild(opt);
+  });
 }
 
 /* ----------------------------------------------------- traitements -- */
@@ -909,6 +983,15 @@ function start() {
     updateZoom(100);
   });
 
+  $("cut-save-preset").addEventListener("click", () => {
+    const name = $("cut-preset-name").value;
+    savePreset("cut", name);
+  });
+  $("cut-presets").addEventListener("change", () => {
+    const name = $("cut-presets").value;
+    if (name) loadPreset("cut", name);
+  });
+
   $("undo").addEventListener("click", () => {
     const asset = current();
     if (!asset || asset.versions.length < 2) return;
@@ -975,6 +1058,19 @@ function start() {
 
   const savedTheme = localStorage.getItem("printpro-theme") || "auto";
   applyTheme(savedTheme);
+
+  // Load presets from localStorage
+  ["cut", "up", "vec", "transform"].forEach((toolName) => {
+    const saved = localStorage.getItem(`printpro-presets-${toolName}`);
+    if (saved) {
+      try {
+        state.presets[toolName] = JSON.parse(saved);
+        updatePresetList(toolName);
+      } catch (e) {
+        console.error(`Failed to load presets for ${toolName}`, e);
+      }
+    }
+  });
 }
 
 start();
