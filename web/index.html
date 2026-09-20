@@ -543,6 +543,14 @@ input[type="color"] {
 .job-row .art img { max-width: 30px; max-height: 30px; }
 .job-row .name { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .job-row input { padding: 4px 6px; font-size: 12px; }
+.job-row[draggable="true"] {
+  cursor: move;
+  user-select: none;
+  transition: border-top 0.15s ease, background-color 0.15s ease;
+}
+.job-row[draggable="true"]:hover {
+  background-color: var(--sunk);
+}
 .job-head {
   display: grid;
   grid-template-columns: 34px 1fr 68px 58px;

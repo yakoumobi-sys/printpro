@@ -586,9 +586,12 @@ function renderJob() {
     box.appendChild(note);
     return;
   }
-  chosen.forEach((asset) => {
+  chosen.forEach((asset, index) => {
     const row = document.createElement("div");
     row.className = "job-row";
+    row.draggable = true;
+    row.dataset.assetId = asset.id;
+    row.dataset.index = index;
 
     const art = document.createElement("div");
     art.className = "art";
@@ -624,6 +627,45 @@ function renderJob() {
 
     row.append(art, name, width, quantity);
     box.appendChild(row);
+  });
+
+  // Add drag handlers
+  const rows = box.querySelectorAll(".job-row");
+  rows.forEach((row) => {
+    row.addEventListener("dragstart", (e) => {
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", row.dataset.assetId);
+      row.style.opacity = "0.6";
+    });
+    row.addEventListener("dragend", (e) => {
+      row.style.opacity = "1";
+    });
+    row.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      row.style.borderTop = "2px solid var(--accent)";
+    });
+    row.addEventListener("dragleave", (e) => {
+      row.style.borderTop = "";
+    });
+    row.addEventListener("drop", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      row.style.borderTop = "";
+
+      const sourceId = e.dataTransfer.getData("text/plain");
+      const targetId = row.dataset.assetId;
+      if (sourceId === targetId) return;
+
+      const chosen = state.assets.filter((asset) => asset.selected);
+      const sourceIdx = chosen.findIndex((a) => a.id === sourceId);
+      const targetIdx = chosen.findIndex((a) => a.id === targetId);
+
+      if (sourceIdx === -1 || targetIdx === -1) return;
+
+      [chosen[sourceIdx], chosen[targetIdx]] = [chosen[targetIdx], chosen[sourceIdx]];
+      renderJob();
+    });
   });
 }
 
