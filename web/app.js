@@ -12,6 +12,7 @@ const state = {
   previewUrls: [],      // URLs d'objet des aperçus de planches, à libérer
   counter: 0,
   zoomLevel: 100,       // zoom actuel en pourcentage
+  theme: "auto",        // thème: auto | light | dark
 };
 
 function releasePreviews() {
@@ -364,6 +365,34 @@ function updateZoom(level) {
     el.style.transform = `scale(${state.zoomLevel / 100})`;
     el.style.transformOrigin = "top center";
   });
+}
+
+function applyTheme(theme) {
+  state.theme = theme;
+  const root = document.documentElement;
+
+  if (theme === "auto") {
+    root.removeAttribute("data-theme");
+    $("theme-toggle").textContent = "🌙";
+    $("theme-toggle").title = "Forcer le mode clair";
+  } else if (theme === "light") {
+    root.setAttribute("data-theme", "light");
+    $("theme-toggle").textContent = "☀️";
+    $("theme-toggle").title = "Forcer le mode sombre";
+  } else if (theme === "dark") {
+    root.setAttribute("data-theme", "dark");
+    $("theme-toggle").textContent = "⭐";
+    $("theme-toggle").title = "Mode automatique";
+  }
+
+  localStorage.setItem("printpro-theme", theme);
+}
+
+function toggleTheme() {
+  const themes = ["auto", "light", "dark"];
+  const currentIndex = themes.indexOf(state.theme);
+  const nextTheme = themes[(currentIndex + 1) % themes.length];
+  applyTheme(nextTheme);
 }
 
 /* ----------------------------------------------------- traitements -- */
@@ -839,6 +868,8 @@ function start() {
     await saveFile(`${asset.name}.svg`, new Blob([asset.svg], { type: "image/svg+xml" }));
   });
 
+  $("theme-toggle").addEventListener("click", toggleTheme);
+
   $("reset").addEventListener("click", () => {
     state.assets = [];
     state.currentId = null;
@@ -865,6 +896,9 @@ function start() {
   } else {
     state.downloads = false;              // page ouverte hors visionneur
   }
+
+  const savedTheme = localStorage.getItem("printpro-theme") || "auto";
+  applyTheme(savedTheme);
 }
 
 start();
