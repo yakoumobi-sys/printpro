@@ -19,7 +19,8 @@ const state = {
     up: {},
     vec: {},
     transform: {}
-  }
+  },
+  recentFiles: []       // fichiers récents (nom + timestamp)
 };
 
 function releasePreviews() {
@@ -156,6 +157,7 @@ async function importFiles(files) {
       try {
         const { image: decoded, reduced } = await decodeFile(file);
         addAsset(file.name, decoded);
+        addRecentFile(file.name);
         imported++;
         if (reduced) reducedNames.push(file.name);
       } catch (error) {
@@ -468,6 +470,45 @@ function updatePresetList(toolName) {
     opt.textContent = name;
     select.appendChild(opt);
   });
+}
+
+function addRecentFile(filename) {
+  const entry = { name: filename, date: new Date().toISOString() };
+  state.recentFiles = state.recentFiles.filter((f) => f.name !== filename);
+  state.recentFiles.unshift(entry);
+  state.recentFiles = state.recentFiles.slice(0, 10);
+  localStorage.setItem("printpro-recent-files", JSON.stringify(state.recentFiles));
+}
+
+function exportSession() {
+  const sessionData = {
+    assets: state.assets,
+    currentId: state.currentId,
+    timestamp: new Date().toISOString(),
+    presets: state.presets,
+  };
+  const blob = new Blob([JSON.stringify(sessionData, null, 2)], { type: "application/json" });
+  saveFile(`printpro-session-${new Date().toISOString().slice(0, 10)}.json`, blob);
+}
+
+function showRecentFiles() {
+  if (!state.recentFiles.length) {
+    flash("Aucun fichier récent");
+    return;
+  }
+
+  const list = state.recentFiles.map((f, i) => {
+    const date = new Date(f.date);
+    const timeStr = date.toLocaleDateString("fr-FR", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+    return `${i + 1}. ${f.name} (${timeStr})`;
+  }).join("\n");
+
+  flash(`Fichiers récents:\n${list}`);
 }
 
 /* ----------------------------------------------------- traitements -- */
@@ -1036,6 +1077,9 @@ function start() {
     }
   });
 
+  $("recent-files").addEventListener("click", showRecentFiles);
+  $("export-session").addEventListener("click", exportSession);
+
   $("reset").addEventListener("click", () => {
     state.assets = [];
     state.currentId = null;
@@ -1078,6 +1122,16 @@ function start() {
       }
     }
   });
+
+  // Load recent files from localStorage
+  const savedRecentFiles = localStorage.getItem("printpro-recent-files");
+  if (savedRecentFiles) {
+    try {
+      state.recentFiles = JSON.parse(savedRecentFiles);
+    } catch (e) {
+      console.error("Failed to load recent files", e);
+    }
+  }
 }
 
 start();
