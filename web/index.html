@@ -244,6 +244,54 @@ button { cursor: pointer; }
 }
 #stage img { max-width: 100%; max-height: 56vh; display: block; }
 #stage .hint { color: var(--ink-soft); font-size: 13px; text-align: center; padding: 40px 20px; }
+#stage-single img { max-height: 56vh; }
+
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--sunk);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.zoom-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+.zoom-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-wash);
+}
+#zoom-level {
+  flex: 1;
+  min-width: 100px;
+  max-width: 150px;
+  cursor: pointer;
+}
+#zoom-percent {
+  min-width: 45px;
+  text-align: right;
+  font-family: var(--mono);
+  color: var(--ink-soft);
+}
+
+.stage-viewport {
+  position: relative;
+  overflow: auto;
+  max-height: 56vh;
+}
 
 /* comparaison avant/après */
 .compare-wrapper {
@@ -629,7 +677,14 @@ input[type="color"] {
 
   <section class="panel">
     <header><span class="step">2</span><h2>Plan de travail</h2></header>
-    <div id="stage">
+    <div class="zoom-controls">
+      <button type="button" id="zoom-out" class="zoom-btn" title="Réduire">−</button>
+      <input type="range" id="zoom-level" min="50" max="400" value="100" step="10">
+      <span id="zoom-percent">100%</span>
+      <button type="button" id="zoom-in" class="zoom-btn" title="Agrandir">+</button>
+      <button type="button" id="zoom-fit" class="zoom-btn" title="Ajuster à la fenêtre">Ajuster</button>
+    </div>
+    <div id="stage" class="stage-viewport">
       <p class="hint">Déposez un visuel pour commencer.</p>
       <div id="stage-single" hidden style="display: grid; place-items: center;"></div>
       <div id="compare" hidden>

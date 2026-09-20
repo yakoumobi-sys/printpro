@@ -11,6 +11,7 @@ const state = {
   downloads: null,      // capacité d'enregistrement : null = pas encore demandée
   previewUrls: [],      // URLs d'objet des aperçus de planches, à libérer
   counter: 0,
+  zoomLevel: 100,       // zoom actuel en pourcentage
 };
 
 function releasePreviews() {
@@ -350,6 +351,19 @@ function updateQuality() {
   needed.textContent = report.dpi < 299.5
     ? `il faudrait ${want} px de large pour 300 dpi`
     : "prêt pour l'impression";
+}
+
+function updateZoom(level) {
+  state.zoomLevel = Math.max(50, Math.min(400, level));
+  $("zoom-level").value = state.zoomLevel;
+  $("zoom-percent").textContent = state.zoomLevel + "%";
+
+  const stage = $("stage");
+  const imgs = stage.querySelectorAll("img, .compare-wrapper");
+  imgs.forEach((el) => {
+    el.style.transform = `scale(${state.zoomLevel / 100})`;
+    el.style.transformOrigin = "top center";
+  });
 }
 
 /* ----------------------------------------------------- traitements -- */
@@ -787,6 +801,19 @@ function start() {
     const newAngle = (angle + 90) % 360;
     $("transform-angle").value = newAngle;
     $("transform-angle-v").textContent = newAngle + "°";
+  });
+
+  $("zoom-level").addEventListener("input", () => {
+    updateZoom(Number($("zoom-level").value));
+  });
+  $("zoom-in").addEventListener("click", () => {
+    updateZoom(state.zoomLevel + 10);
+  });
+  $("zoom-out").addEventListener("click", () => {
+    updateZoom(state.zoomLevel - 10);
+  });
+  $("zoom-fit").addEventListener("click", () => {
+    updateZoom(100);
   });
 
   $("undo").addEventListener("click", () => {
