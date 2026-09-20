@@ -449,6 +449,66 @@ async function runVectorize() {
   flash("SVG prêt — bouton SVG au-dessus");
 }
 
+function getTransformState() {
+  const angle = Number($("transform-angle").value);
+  const flipH = $("flip-h").dataset.active === "true";
+  const flipV = $("flip-v").dataset.active === "true";
+  return { angle, flipH, flipV };
+}
+
+function transformImage(source, { angle, flipH = false, flipV = false }) {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  const radians = (angle * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+
+  let newW = source.width;
+  let newH = source.height;
+  if (angle !== 0 && angle !== 180 && angle !== 360) {
+    newW = Math.round(Math.abs(source.width * cos) + Math.abs(source.height * sin));
+    newH = Math.round(Math.abs(source.width * sin) + Math.abs(source.height * cos));
+  }
+
+  canvas.width = newW;
+  canvas.height = newH;
+
+  ctx.save();
+  ctx.translate(newW / 2, newH / 2);
+  if (flipH) ctx.scale(-1, 1);
+  if (flipV) ctx.scale(1, -1);
+  ctx.rotate(radians);
+  ctx.drawImage(E.canvasOf(source), -source.width / 2, -source.height / 2);
+  ctx.restore();
+
+  return ctx.getImageData(0, 0, newW, newH);
+}
+
+async function runTransform() {
+  const asset = current();
+  if (!asset) return flash("Choisissez un visuel", true);
+  const source = image(asset);
+  const params = getTransformState();
+
+  if (params.angle === 0 && !params.flipH && !params.flipV) {
+    return flash("Aucune transformation à appliquer", true);
+  }
+
+  const result = await busy("Transformation…", async () => {
+    return transformImage(source, params);
+  });
+
+  if (!result) return;
+  const labels = [];
+  if (params.angle !== 0) labels.push(`rotation ${params.angle}°`);
+  if (params.flipH) labels.push("retournement H");
+  if (params.flipV) labels.push("retournement V");
+  pushVersion(asset, result, labels.join(" + ") || "transformation");
+  asset.svg = null;
+  $("transform-note").textContent = `Image transformée : ${labels.join(", ")}`;
+  renderAll();
+}
+
 /* --------------------------------------------------------- planche -- */
 function renderJob() {
   const box = $("job");
@@ -698,8 +758,36 @@ function start() {
   $("run-cut").addEventListener("click", runCut);
   $("run-up").addEventListener("click", runUpscale);
   $("run-vec").addEventListener("click", runVectorize);
+  $("run-transform").addEventListener("click", runTransform);
   $("run-sheet").addEventListener("click", runSheet);
   $("print-mm").addEventListener("input", updateQuality);
+
+  bindRange("transform-angle", "transform-angle-v", 0, "°");
+
+  $("flip-h").addEventListener("click", () => {
+    const btn = $("flip-h");
+    const isActive = btn.dataset.active === "true";
+    btn.dataset.active = !isActive;
+    btn.classList.toggle("active", !isActive);
+  });
+  $("flip-v").addEventListener("click", () => {
+    const btn = $("flip-v");
+    const isActive = btn.dataset.active === "true";
+    btn.dataset.active = !isActive;
+    btn.classList.toggle("active", !isActive);
+  });
+  $("rotate-90-left").addEventListener("click", () => {
+    const angle = Number($("transform-angle").value);
+    const newAngle = (angle - 90 + 360) % 360;
+    $("transform-angle").value = newAngle;
+    $("transform-angle-v").textContent = newAngle + "°";
+  });
+  $("rotate-90-right").addEventListener("click", () => {
+    const angle = Number($("transform-angle").value);
+    const newAngle = (angle + 90) % 360;
+    $("transform-angle").value = newAngle;
+    $("transform-angle-v").textContent = newAngle + "°";
+  });
 
   $("undo").addEventListener("click", () => {
     const asset = current();

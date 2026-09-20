@@ -412,6 +412,38 @@ input[type="color"] {
 .go:hover { filter: brightness(1.07); }
 .go[disabled] { opacity: .5; cursor: not-allowed; }
 
+.button-group {
+  display: flex;
+  gap: 6px;
+  margin-top: 9px;
+}
+.icon-btn {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.icon-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-wash);
+}
+.icon-btn:active {
+  transform: scale(0.98);
+}
+.icon-btn.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
 .ghost {
   border: 1px solid var(--line);
   background: var(--surface);
@@ -636,6 +668,7 @@ input[type="color"] {
       <button role="tab" id="tab-cut" aria-selected="true" aria-controls="tool-cut">Détourage</button>
       <button role="tab" id="tab-up" aria-selected="false" aria-controls="tool-up">Agrandir</button>
       <button role="tab" id="tab-vec" aria-selected="false" aria-controls="tool-vec">Vectoriser</button>
+      <button role="tab" id="tab-transform" aria-selected="false" aria-controls="tool-transform">Transformer</button>
     </div>
 
     <div class="tool on" id="tool-cut" role="tabpanel" aria-labelledby="tab-cut">
@@ -735,6 +768,23 @@ input[type="color"] {
       <label class="check"><input type="checkbox" id="vec-replace" checked> Remplacer l'aperçu par le rendu</label>
       <button class="go" id="run-vec" type="button">Vectoriser en SVG</button>
       <p class="note" id="vec-note"></p>
+    </div>
+
+    <div class="tool" id="tool-transform" role="tabpanel" aria-labelledby="tab-transform">
+      <div class="field">
+        <label for="transform-angle">Rotation <span class="value" id="transform-angle-v">0°</span></label>
+        <input type="range" id="transform-angle" min="0" max="360" step="1" value="0">
+      </div>
+      <div class="button-group">
+        <button type="button" id="flip-h" class="icon-btn" title="Retourner horizontalement">↔ Horizontal</button>
+        <button type="button" id="flip-v" class="icon-btn" title="Retourner verticalement">↕ Vertical</button>
+      </div>
+      <div class="button-group">
+        <button type="button" id="rotate-90-left" class="icon-btn" title="Rotation 90° antihoraire">↻ -90°</button>
+        <button type="button" id="rotate-90-right" class="icon-btn" title="Rotation 90° horaire">↺ +90°</button>
+      </div>
+      <button class="go" id="run-transform" type="button">Appliquer les transformations</button>
+      <p class="note" id="transform-note"></p>
     </div>
   </section>
 
