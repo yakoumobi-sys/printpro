@@ -1,3 +1,5 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Atelier PrintPro</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -690,6 +692,106 @@ input[type="color"] {
 }
 #flash.on { transform: translateX(-50%) translateY(0); }
 #flash.bad { background: var(--bad); color: #fff; }
+
+/* -------------------------------------------------------- mobile -- */
+@media (max-width: 768px) {
+  body { font-size: 13px; }
+  .panel { border-radius: 8px; }
+  .panel > header { padding: 8px 11px; }
+  .panel > header h2 { font-size: 15px; }
+
+  .shell { gap: 10px; padding: 10px 12px 20px; }
+  #stage { min-height: 280px; }
+  #stage img, #stage-single img { max-height: 40vh; }
+
+  .field { margin-bottom: 10px; }
+  .field input, .field select { padding: 7px 8px; font-size: 13px; }
+
+  .tabs { flex-wrap: wrap; gap: 6px; }
+  .tabs button { padding: 7px 10px; font-size: 12px; }
+
+  .go { padding: 8px 10px; font-size: 12px; }
+  .ghost { padding: 6px 8px; font-size: 11px; }
+
+  .button-group { gap: 4px; margin-top: 8px; }
+  .icon-btn { padding: 6px 8px; font-size: 11px; }
+
+  .zoom-controls { gap: 6px; padding: 7px 10px; }
+  .zoom-btn { width: 28px; height: 28px; font-size: 12px; }
+  #zoom-percent { min-width: 40px; font-size: 11px; }
+  #zoom-level { max-width: 80px; }
+
+  .check { font-size: 11.5px; }
+  .check input { width: 16px; height: 16px; }
+
+  .preset-controls { gap: 4px; }
+  .preset-input, .preset-select { padding: 5px 7px; font-size: 11px; }
+
+  .note { font-size: 10.5px; margin-top: 7px; }
+  .chip { font-size: 10px; padding: 1px 7px; }
+
+  .trail { gap: 4px; padding: 7px 11px; font-size: 10.5px; }
+  .trail span { padding: 3px 5px; font-size: 10px; }
+
+  .sheet-grid { gap: 8px; padding: 12px 11px; }
+  .stats { gap: 4px; }
+  .stat { font-size: 11px; }
+
+  .job-row { gap: 6px; padding: 4px 6px; }
+  .job-row input { padding: 3px 5px; font-size: 11px; }
+  .job-row .art { width: 26px; height: 26px; }
+
+  .readout { gap: 6px 10px; padding: 8px 11px; font-size: 12px; }
+}
+
+@media (max-width: 500px) {
+  body { font-size: 12px; }
+  .topbar { padding: 8px 12px; gap: 8px; }
+  .wordmark { font-size: 14px; }
+  .wordmark .dot { width: 6px; height: 6px; }
+
+  .panel > header { padding: 6px 9px; }
+  .panel > header .step { font-size: 11px; width: 20px; height: 20px; }
+  .panel > header h2 { font-size: 13px; }
+
+  .shell { gap: 8px; padding: 8px 8px 16px; }
+  #stage { min-height: 240px; padding: 12px; }
+
+  .field label { font-size: 12px; }
+  .field input, .field select { padding: 6px 7px; font-size: 12px; }
+  input[type="range"] { height: 4px; }
+
+  .tabs { gap: 4px; }
+  .tabs button { padding: 6px 8px; font-size: 11px; min-width: auto; }
+
+  .go { padding: 7px 9px; font-size: 11px; margin-top: 5px; }
+  .ghost { padding: 5px 7px; font-size: 10px; }
+
+  .icon-btn { padding: 5px 7px; font-size: 10px; }
+  .button-group { gap: 3px; margin-top: 7px; }
+
+  .zoom-controls { gap: 5px; padding: 6px 8px; font-size: 11px; }
+  .zoom-btn { width: 26px; height: 26px; font-size: 11px; }
+  #zoom-percent { min-width: 35px; font-size: 10px; }
+
+  .check input { width: 14px; height: 14px; }
+  .check { font-size: 10.5px; }
+
+  .note { font-size: 10px; }
+  .trail { padding: 6px 9px; gap: 3px; }
+
+  .job-row { gap: 5px; padding: 3px 5px; font-size: 11px; }
+  .job-row .art { width: 24px; height: 24px; }
+  .job-row input { padding: 2px 4px; font-size: 10px; }
+
+  .stats { gap: 3px; flex-wrap: wrap; }
+  .stat { font-size: 10px; }
+
+  .readout { flex-wrap: wrap; gap: 4px 8px; padding: 6px 9px; font-size: 11px; }
+
+  figure { margin: 8px 0; }
+  figcaption { font-size: 10px; padding: 6px 0; }
+}
 </style>
 
 <div class="topbar">
