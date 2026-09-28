@@ -103,3 +103,71 @@ def test_delete_and_clear(client, upload):
 
 def test_unknown_asset_is_404(client):
     assert client.get("/api/assets/nope/preview").status_code == 404
+
+
+def test_workspace_survives_restart(tmp_path, disc_on_white):
+    from printpro.server import create_app
+    root = tmp_path / "persistent"
+    first = fastapi_testclient.TestClient(create_app(root))
+    created = first.post("/api/assets", files={"files": ("été.png", encode(disc_on_white[0], "PNG"), "image/png")}).json()[0]
+    first.post(f"/api/assets/{created['id']}/settings", json={"width_mm": 75.5, "quantity": 9})
+    first.post(f"/api/assets/{created['id']}/upscale", json={"scale": 2, "method": "lanczos"})
+    second = fastapi_testclient.TestClient(create_app(root))
+    restored = second.get("/api/assets").json()[0]
+    assert (restored["width_mm"], restored["quantity"], restored["versions"]) == (75.5, 9, 2)
+    assert second.get(restored["preview"]).status_code == 200
+    assert second.post(f"/api/assets/{created['id']}/undo").json()["width"] == 140
+
+
+@pytest.mark.parametrize("operation,body", [
+    ("settings", {"width_mm": -1}), ("settings", {"quantity": 2.5}),
+    ("upscale", {"scale": 1000}), ("vectorize", {"colors": 0}),
+    ("background", {"method": "unknown"}), ("background", {"color": "<script>"})])
+def test_invalid_processing_settings(client, upload, operation, body):
+    assert client.post(f"/api/assets/{upload['id']}/{operation}", json=body).status_code == 422
+    assert client.get("/api/assets").json()[0]["versions"] == 1
+
+
+def test_preview_does_not_write_exports(client, upload, tmp_path):
+    response = client.post("/api/montage", json={"items": [{"id": upload['id'], "width_mm": 40, "quantity": 7}], "preview_only": True, "page": "DTF-40"})
+    data = response.json()
+    assert response.status_code == 200 and data["placed"] == 7
+    assert data["previews"][0].startswith("data:image/png;base64,")
+    assert "pdf" not in data
+    assert not list((tmp_path / "ws" / "sorties").iterdir())
+    assert any("dpi" in warning for warning in data["warnings"])
+
+
+def test_oversize_and_invalid_page_rejected(client, upload):
+    body = {"items": [{"id": upload['id'], "width_mm": 1000}], "page": "A4"}
+    assert client.post("/api/montage", json=body).status_code == 400
+    body["page"] = "oops"
+    assert client.post("/api/montage", json=body).status_code == 400
+
+
+def test_original_preview_and_svg_invalidation(client, upload):
+    asset_id = upload['id']
+    original = client.get(f"/api/assets/{asset_id}/preview?original=true&full=1").content
+    vec = client.post(f"/api/assets/{asset_id}/vectorize", json={"colors": 3})
+    assert vec.json()["has_svg"]
+    assert client.get(f"/api/assets/{asset_id}/preview?original=true&full=1").content == original
+    up = client.post(f"/api/assets/{asset_id}/upscale", json={"scale": 2, "method": "lanczos"})
+    assert not up.json()["has_svg"]
+    assert client.get(f"/api/assets/{asset_id}/quality?mm=0").status_code == 422
+
+
+def test_custom_page_and_settings_partial_update(client, upload):
+    client.post(f"/api/assets/{upload['id']}/settings", json={"quantity": 7})
+    result = client.post(f"/api/assets/{upload['id']}/settings", json={"width_mm": 40}).json()
+    assert result['quantity'] == 7
+    response = client.post("/api/montage", json={"items": [{"id": upload['id']}], "page": "custom", "page_width_mm": 400, "page_height_mm": 350, "preview_only": True})
+    assert response.json()['placed'] == 7
+    assert response.json()['page_size_mm'] == [400, 350]
+
+
+def test_png_download_embeds_physical_resolution(client, upload):
+    from PIL import Image
+    client.post(f"/api/assets/{upload['id']}/settings", json={"width_mm": 40})
+    response = client.get(f"/api/assets/{upload['id']}/download")
+    with Image.open(io.BytesIO(response.content)) as image:
+        assert image.info['dpi'][0] == pytest.approx(140 * 25.4 / 40, abs=.02)

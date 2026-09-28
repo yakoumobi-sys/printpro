@@ -121,3 +121,52 @@ def test_summary_reports_efficiency():
     summary = result.summary()
     assert summary["placed"] == 6
     assert 0 < summary["efficiency"] <= 100
+
+
+def test_unplaced_copies_are_counted():
+    result = build_montage([item(400, 3), item(40, 2)])
+    assert result.requested == 5 and result.placed == 2
+    assert any("3 exemplaire" in w for w in result.warnings)
+
+
+def test_page_limit_warns():
+    result = build_montage([item(150, 5)], MontageOptions(max_pages=1))
+    assert result.placed < result.requested
+    assert any("non placé" in w for w in result.warnings)
+
+
+def test_grid_rotates_to_fit_and_rejects_excess_columns():
+    image = np.full((100, 250, 4), 255, np.uint8)
+    result = build_montage([MontageItem(image, width_mm=250)], MontageOptions(layout="grid"))
+    assert result.pages[0][0].rotated
+    assert result.pages[0][0].w_mm <= 198
+    with pytest.raises(ValueError, match="colonnes"):
+        build_montage([item(100)], MontageOptions(layout="grid", columns=20))
+
+
+def test_fill_respects_rotation_lock():
+    from printpro.montage import _fill_count
+    assert _fill_count(90, 60, 100, 200, MontageOptions(spacing_mm=0), False) == 3
+
+
+def test_duplicate_free_rectangles_survive_pruning():
+    from printpro.montage import _MaxRects
+    packer = _MaxRects(100, 100)
+    packer.free = [[0, 0, 100, 100], [0, 0, 100, 100]]
+    packer._prune()
+    assert len(packer.free) == 1
+    assert packer.insert(50, 50, True)
+
+
+def test_cut_contour_preserves_artwork_scale():
+    original = item(40, px=120)
+    result = build_montage([original], MontageOptions(cut_contour_mm=2, cut_stroke=True))
+    prepared = result.items[0]
+    assert prepared.width_mm / prepared.image.shape[1] == pytest.approx(40 / 120)
+    assert prepared.height_mm / prepared.image.shape[0] == pytest.approx(40 / 120)
+
+
+def test_repeated_artwork_is_embedded_once_in_pdf(tmp_path):
+    result = build_montage([item(40, 12)], MontageOptions(dpi=72, layout="grid"))
+    data = export_pdf(result, tmp_path / "repeated.pdf").read_bytes()
+    assert data.count(b"/Subtype /Image") == 1
