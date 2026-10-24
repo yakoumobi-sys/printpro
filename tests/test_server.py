@@ -103,3 +103,40 @@ def test_delete_and_clear(client, upload):
 
 def test_unknown_asset_is_404(client):
     assert client.get("/api/assets/nope/preview").status_code == 404
+
+
+def test_landing_and_workshop_pages(client):
+    assert "Déposez votre visuel" in client.get("/").text
+    assert "Montage sur la planche" in client.get("/atelier").text
+    assert client.get("/static/landing.js").status_code == 200
+
+
+def test_products_and_inspect(client, upload):
+    products = client.get("/api/products").json()
+    assert {"flyer-a5", "dtf-a4"} <= {p["key"] for p in products}
+    report = client.post(f"/api/assets/{upload['id']}/inspect",
+                         json={"product": "affiche-a3"}).json()
+    assert report["issues"] >= 1 and report["checks"]
+    bad = client.post(f"/api/assets/{upload['id']}/inspect", json={"product": "nope"})
+    assert bad.status_code == 400
+
+
+def test_print_job(client, upload):
+    report = client.post(f"/api/assets/{upload['id']}/print",
+                         json={"product": "carte-visite"}).json()
+    assert report["preflight"]["passed"] and report["preflight"]["count"] == 9
+    pdf = client.get(report["pdf"])
+    assert pdf.headers["content-type"] == "application/pdf"
+    assert pdf.content.startswith(b"%PDF-1.3")
+    assert client.get(report["proof"]).status_code == 200
+    dtf_refused = client.post(f"/api/assets/{upload['id']}/print",
+                              json={"product": "dtf-a4"})
+    assert dtf_refused.status_code == 400
+
+
+def test_dtf_job(client, upload):
+    report = client.post(f"/api/assets/{upload['id']}/dtf",
+                         json={"product": "dtf-coeur", "edges": "halftone"}).json()
+    assert report["preflight"]["passed"]
+    for key in ("png", "white", "pdf", "proof"):
+        assert client.get(report[key]).status_code == 200

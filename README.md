@@ -1,20 +1,63 @@
 # PrintPro
 
-**Atelier de préparation de fichiers pour l'impression.** Vectoriser, agrandir,
-détourer et monter les visuels sur la planche — en ligne de commande ou depuis
-une interface web locale.
+**Des fichiers prêts pour l'imprimeur à partir d'images IA.** Déposez une
+image (Midjourney, DALL·E, ChatGPT, Ideogram…), choisissez le produit, et
+récupérez un **PDF/X-1a CMJN** avec fond perdu et traits de coupe — ou un
+**film DTF** avec sous-couche blanche — que le contrôle prépresse de
+l'imprimeur accepte sans allers-retours.
 
-![Interface PrintPro](docs/interface.png)
+![Accueil PrintPro](docs/accueil.png)
 
-Pensé pour les ateliers d'impression et le print à la demande : stickers, DTF,
-flex/flocage, sublimation, affiches, étiquettes. Tout tourne **en local**,
-aucune image n'est envoyée sur Internet, et **aucun binaire externe n'est
-requis** (ni potrace, ni ImageMagick, ni Inkscape) : Pillow + NumPy + SciPy
-suffisent.
+Tout tourne **en local** : aucune image n'est envoyée sur Internet, et
+**aucun binaire externe n'est requis** (ni Ghostscript, ni ImageMagick, ni
+potrace) : Pillow + NumPy + SciPy suffisent.
 
 ---
 
-## Ce que fait l'outil
+## Prêt à imprimer (papier)
+
+| Problème qui fait renvoyer le fichier | Ce que fait PrintPro |
+|---|---|
+| RVB au lieu de CMJN | séparation CMJN avec remplacement du gris (GCR), compensation d'engraissement, noir enrichi, **encrage total plafonné à 300 %** |
+| Pas de fond perdu | fond perdu par produit (2 ou 3 mm), par **miroir des bords** (rien n'est recadré deux fois), étirement ou zoom |
+| Moins de 300 dpi à la taille | agrandissement automatique jusqu'à la résolution du produit (vectoriel pour les aplats, contours renforcés pour les photos) |
+| Ni TrimBox ni traits de coupe | **PDF/X-1a:2001** (ISO 15930-1) : TrimBox, BleedBox, intention de sortie FOGRA39, traits de coupe en couleur de repérage (*All*, 0,25 pt, décalés hors fond perdu) |
+
+Le PDF est ensuite **relu et contrôlé en 9 points** avant le téléchargement :
+norme PDF/X-1a, intention de sortie, format fini, fond perdu couvert,
+résolution effective, CMJN uniquement, encrage total, absence de
+transparence, traits de coupe hors zone imprimée.
+
+![Résultat et contrôle prépresse](docs/resultat.png)
+
+Produits fournis : carte de visite, flyers A6 / A5 / DL, dépliant A4,
+affiches A3 / A2 / A1, carré 20 cm — et tout format sur mesure (`320x450`).
+
+> **Profil couleur.** Sans profil, PrintPro utilise sa séparation intégrée et
+> déclare l'intention de sortie *Coated FOGRA39* (condition enregistrée). Pour
+> une séparation calibrée, fournissez un profil ICC CMJN (ISO Coated v2,
+> CoatedFOGRA39…) via `--icc` ou la variable `PRINTPRO_CMYK_ICC` : la
+> conversion passe alors par LittleCMS (colorimétrie relative + compensation
+> du point noir) et le profil est incorporé au PDF.
+
+## Films DTF
+
+| Problème qui gâche un film DTF | Ce que fait PrintPro |
+|---|---|
+| Pas de blanc sous la couleur | sous-couche blanche générée et **rétrécie** (0,25 mm) : aucun liseré blanc |
+| Couleur du textile imprimée dans le motif | la couleur du t-shirt est retirée du visuel, le tissu apparaît au travers |
+| Bords flous, semi-transparents | alpha strictement 0/100 % : seuil net ou **tramage AM** linéaire pour les ombres |
+| Encre jusqu'au bord de coupe | marge de film dégagée, éclats trop petits pour tenir supprimés |
+
+Sortie : PNG transparent 300 dpi, couche blanche séparée, PDF d'épreuve à
+deux pages, plus un contrôle du film en 7 points.
+
+## Atelier avancé
+
+L'atelier d'origine reste disponible sur `/atelier` :
+
+![Atelier avancé](docs/interface.png)
+
 
 | Fonction | Description |
 |---|---|
@@ -59,10 +102,13 @@ pip install rembg          # détourage IA des sujets complexes (cheveux, fourru
 python -m printpro serve --port 8000
 ```
 
-Déposez vos images, enchaînez les traitements (chaque étape est annulable),
-cochez les visuels à imprimer, réglez la taille en millimètres et la quantité,
-puis **Générer la planche** : la prévisualisation s'affiche et le PDF ainsi que
-les PNG sont téléchargeables.
+Choisissez **Papier** ou **DTF**, le produit, puis déposez votre visuel : le
+contrôle gratuit indique ce que l'imprimeur dirait du fichier tel quel.
+**Préparer** produit le fichier, affiche sa fiche technique, le résultat du
+contrôle prépresse et les liens de téléchargement.
+
+Les outils détaillés (détourage, agrandissement, vectorisation, planches)
+sont sur **http://127.0.0.1:8000/atelier**.
 
 ---
 
@@ -71,6 +117,29 @@ les PNG sont téléchargeables.
 ```bash
 python -m printpro --help      # ou simplement : printpro --help
 ```
+
+### Prêt à imprimer
+
+```bash
+printpro produits                                   # catalogue des produits
+printpro imprimer affiche.png -o affiche.pdf --produit affiche-a3
+printpro imprimer flyer.jpg -o flyer.pdf --produit flyer-a5 --cadrage entiere \
+        --mode-fond-perdu etirer --epreuve flyer.png
+printpro imprimer visuel.png -o expo.pdf --produit 500x700 --fond-perdu 5 \
+        --encrage 280 --icc ISOcoated_v2_eci.icc
+```
+
+Le code retour vaut 1 si un contrôle échoue (pratique en script) ; `--json`
+donne le rapport complet.
+
+### Film DTF
+
+```bash
+printpro dtf tshirt.png -o films/ --produit dtf-a3 --textile "#000000"
+printpro dtf logo.png   -o films/ --produit dtf-coeur --trame --lpi 40 --retrait 0.3
+```
+
+Sortie : `<nom>-dtf.png` (film), `<nom>-blanc.png` (sous-couche), `<nom>-dtf.pdf`.
 
 ### Détourer
 
@@ -176,6 +245,10 @@ Le serveur expose une API REST (documentation interactive sur `/api/docs`) :
 
 | Méthode | Route | Rôle |
 |---|---|---|
+| `GET` | `/api/products` | catalogue des produits |
+| `POST` | `/api/assets/{id}/inspect` | contrôle gratuit du visuel pour un produit |
+| `POST` | `/api/assets/{id}/print` | PDF/X-1a prêt à imprimer + rapport de contrôle |
+| `POST` | `/api/assets/{id}/dtf` | film DTF (PNG, couche blanche, PDF) + contrôle |
 | `POST` | `/api/assets` | importer une ou plusieurs images |
 | `GET` | `/api/assets` · `/api/assets/{id}/preview` | lister / prévisualiser |
 | `POST` | `/api/assets/{id}/background` | détourer |
@@ -197,6 +270,22 @@ Résolutions courantes : 150 / 300 / 600 dpi.
 
 ## Comment ça marche
 
+- **Séparation CMJN** — `C' = 1 − R`, … ; le noir remplace la composante grise
+  progressivement au-delà de 25 % (GCR doux : pas de points noirs dans les
+  tons chair), puis `C = (C' − K) / (1 − K)` ; compensation d'engraissement
+  sur les tons moyens, support CMJ sous les noirs profonds, et plafonnement :
+  au-delà de la limite, seuls C, M et J sont réduits.
+- **PDF/X-1a** — PDF 1.3, images `/DeviceCMYK` sans perte, aucune
+  transparence ni police, `/OutputIntents` GTS_PDFX, clés `GTS_PDFXVersion`,
+  `/Trapped /False`, `/ID`. Les traits de coupe utilisent l'espace
+  `/Separation /All` pour apparaître sur toutes les plaques.
+- **Contrôle prépresse** — le PDF est relu depuis les octets (table xref,
+  dictionnaires, flux décompressés) : boîtes, placements d'images
+  (résolution effective et couverture du fond perdu), opérateurs couleur,
+  encrage maximal pixel par pixel, segments des traits de coupe.
+- **Tramage DTF** — trame AM à points ronds sur une grille tournée ; le seuil
+  est l'aire exacte du disque dans sa cellule, la couverture d'encre est
+  donc linéaire (30 % d'alpha → 30 % d'encre).
 - **Détourage** — la bordure de l'image est échantillonnée puis regroupée par
   k-means dans l'espace CIE L\*a\*b\* ; une carte de distance colorimétrique
   donne le masque, seules les zones de fond *connectées au bord* sont effacées
@@ -223,7 +312,7 @@ Résolutions courantes : 150 / 300 / 600 dpi.
 
 ```bash
 pip install pytest httpx
-pytest -q          # 81 tests : imagerie, détourage, tracé, montage, PDF, CLI, API
+pytest -q          # 99 tests : imagerie, détourage, tracé, montage, CMJN, PDF/X, DTF, CLI, API
 ```
 
 ## Licence

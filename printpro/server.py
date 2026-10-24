@@ -22,11 +22,15 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
 from fastapi.staticfiles import StaticFiles
 
 from .bgremove import BgOptions, ai_available, remove_background
+from .cmyk import CmykOptions
+from .dtf import DtfOptions, make_dtf
 from .imaging import (aspect_fit, encode, load_rgba, px_to_mm, resize,
                       save_image)
 from .montage import (PAGE_PRESETS, MontageItem, MontageOptions, build_montage,
                       export_pdf, export_sheets)
 from .pipeline import quality_check
+from .prepress import PressOptions, inspect_artwork, make_press_ready
+from .products import PRODUCTS, resolve_product
 from .upscale import UpscaleOptions, esrgan_available, upscale
 from .vectorize import VectorOptions, vectorize
 
@@ -132,6 +136,10 @@ def create_app(workspace: str | Path = "workspace") -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
         return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+    @app.get("/atelier", response_class=HTMLResponse)
+    def workshop() -> str:
+        return (STATIC_DIR / "atelier.html").read_text(encoding="utf-8")
 
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -293,6 +301,107 @@ def create_app(workspace: str | Path = "workspace") -> FastAPI:
         asset = asset_or_404(asset_id)
         return quality_check(load_rgba(asset.path), mm, None, dpi)
 
+    # -- prêt à imprimer ------------------------------------------------- #
+    def product_or_400(body: dict):
+        try:
+            return resolve_product(str(body.get("product", "flyer-a5")),
+                                   bleed_mm=body.get("bleed_mm"),
+                                   dpi=body.get("dpi"))
+        except (KeyError, ValueError) as error:
+            raise HTTPException(400, str(error).strip("'\""))
+
+    def save_thumb(image, path: Path, size: int = 900) -> None:
+        h, w = image.shape[:2]
+        save_image(resize(image, *aspect_fit(w, h, size, size)), path)
+
+    @app.get("/api/products")
+    def products() -> List[dict]:
+        return [p.as_dict() for p in PRODUCTS.values()]
+
+    @app.post("/api/assets/{asset_id}/inspect")
+    def inspect(asset_id: str, body: dict) -> dict:
+        asset = asset_or_404(asset_id)
+        return inspect_artwork(load_rgba(asset.path), product_or_400(body),
+                               body.get("orientation", "auto"))
+
+    @app.post("/api/assets/{asset_id}/print")
+    def press_ready(asset_id: str, body: dict) -> dict:
+        asset = asset_or_404(asset_id)
+        product = product_or_400(body)
+        if product.family == "dtf":
+            raise HTTPException(400, "produit DTF : utilisez /dtf")
+        options = PressOptions(
+            fit=body.get("fit", "cover"),
+            bleed_mode=body.get("bleed_mode", "mirror"),
+            orientation=body.get("orientation", "auto"),
+            crop_marks=bool(body.get("crop_marks", True)),
+            background=body.get("background") or "#ffffff",
+            cmyk=CmykOptions(tac=float(body.get("tac", 300))),
+            title=Path(asset.name).stem)
+        result = make_press_ready(load_rgba(asset.path), product, options)
+        job = uuid.uuid4().hex[:10]
+        job_dir = store.out_dir / job
+        job_dir.mkdir(parents=True, exist_ok=True)
+        stem = f"{Path(asset.name).stem}-{product.key}"
+        pdf = job_dir / f"{stem}.pdf"
+        pdf.write_bytes(result.pdf)
+        save_thumb(result.proof(), job_dir / "epreuve.png")
+        report = {
+            "job": job,
+            "product": product.as_dict(),
+            "file": pdf.name,
+            "pdf": f"/api/sorties/{job}/{pdf.name}",
+            "proof": f"/api/sorties/{job}/epreuve.png",
+            "specs": result.specs,
+            "steps": result.steps,
+            "preflight": result.preflight.as_dict()}
+        (job_dir / "rapport.json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        return report
+
+    @app.post("/api/assets/{asset_id}/dtf")
+    def dtf(asset_id: str, body: dict) -> dict:
+        asset = asset_or_404(asset_id)
+        product = product_or_400({"product": "dtf-a4", **body})
+        options = DtfOptions(
+            remove_background=body.get("remove_background", "auto"),
+            garment=body.get("garment") or None,
+            garment_tolerance=float(body.get("garment_tolerance", 14)),
+            edges=body.get("edges", "threshold"),
+            halftone_lpi=float(body.get("lpi", 35)),
+            choke_mm=float(body.get("choke_mm", 0.25)),
+            margin_mm=float(body.get("margin_mm", 2)),
+            mirror=bool(body.get("mirror", False)))
+        result = make_dtf(load_rgba(asset.path), product, options)
+        job = uuid.uuid4().hex[:10]
+        job_dir = store.out_dir / job
+        stem = f"{Path(asset.name).stem}-{product.key}"
+        film = save_image(result.artwork, job_dir / f"{stem}.png", dpi=product.dpi)
+        white = save_image(result.white_plate_rgba(), job_dir / f"{stem}-blanc.png",
+                           dpi=product.dpi)
+        pdf = job_dir / f"{stem}.pdf"
+        pdf.write_bytes(result.pdf)
+        save_thumb(result.preview(body.get("preview_garment") or
+                                  body.get("garment") or "#2b2b2b"),
+                   job_dir / "epreuve.png")
+        report = {
+            "job": job,
+            "product": product.as_dict(),
+            "file": film.name,
+            "png": f"/api/sorties/{job}/{film.name}",
+            "white": f"/api/sorties/{job}/{white.name}",
+            "pdf": f"/api/sorties/{job}/{pdf.name}",
+            "proof": f"/api/sorties/{job}/epreuve.png",
+            "specs": result.specs,
+            "steps": result.steps,
+            "preflight": {"passed": all(c["status"] != "fail" for c in result.checks),
+                          "count": len(result.checks),
+                          "ok": sum(c["status"] == "ok" for c in result.checks),
+                          "checks": result.checks}}
+        (job_dir / "rapport.json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        return report
+
     # -- montage --------------------------------------------------------- #
     @app.post("/api/montage")
     def montage(body: dict) -> dict:
@@ -361,7 +470,8 @@ def create_app(workspace: str | Path = "workspace") -> FastAPI:
         path = (store.out_dir / job / name).resolve()
         if not str(path).startswith(str(store.out_dir.resolve())) or not path.exists():
             raise HTTPException(404, "fichier introuvable")
-        media = "application/pdf" if path.suffix == ".pdf" else "image/png"
+        media = {".pdf": "application/pdf", ".json": "application/json"}.get(
+            path.suffix, "image/png")
         return FileResponse(path, media_type=media, filename=path.name)
 
     @app.post("/api/workspace/clear")
