@@ -68,3 +68,14 @@ def test_print_quality_grades():
     assert print_quality(1181, 1181, 100, 100)["grade"] == "excellent"
     assert print_quality(600, 600, 100, 100)["grade"] == "moyen"
     assert print_quality(200, 200, 100, 100)["grade"] == "faible"
+
+
+def test_banded_edge_sharpen_matches_whole_image():
+    """The banded sharpen must be bit-identical to a single pass."""
+    import numpy as np
+    from printpro.upscale import _edge_sharpen
+    rng = np.random.default_rng(3)
+    img = rng.integers(0, 256, (157, 83, 4), dtype=np.uint8)
+    whole = _edge_sharpen(img, 3.0, 0.6, band=10_000)
+    for band in (7, 32, 64):
+        assert np.array_equal(_edge_sharpen(img, 3.0, 0.6, band=band), whole)

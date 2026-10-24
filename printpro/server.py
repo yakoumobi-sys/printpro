@@ -8,12 +8,15 @@ undone.  The heavy lifting is done by the very same functions the CLI uses.
 from __future__ import annotations
 
 import json
+import math
+import re
 import shutil
 import time
 import uuid
 from dataclasses import dataclass, field
 from typing import List
 from pathlib import Path
+from urllib.parse import quote
 
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -24,8 +27,8 @@ from fastapi.staticfiles import StaticFiles
 from .bgremove import BgOptions, ai_available, remove_background
 from .cmyk import CmykOptions
 from .dtf import DtfOptions, make_dtf
-from .imaging import (aspect_fit, encode, load_rgba, px_to_mm, resize,
-                      save_image)
+from .imaging import (aspect_fit, encode, hex_to_rgb, load_rgba, px_to_mm,
+                      resize, save_image)
 from .montage import (PAGE_PRESETS, MontageItem, MontageOptions, build_montage,
                       export_pdf, export_sheets)
 from .pipeline import quality_check
@@ -36,6 +39,50 @@ from .vectorize import VectorOptions, vectorize
 
 STATIC_DIR = Path(__file__).parent / "static"
 THUMB_MAX = 420
+
+
+def clean_name(filename: str | None) -> str:
+    """Display name of an upload: no path, no markup characters, bounded."""
+    name = Path(str(filename or "").replace("\\", "/")).name
+    name = re.sub(r"[\x00-\x1f\x7f<>\"'`&]", "", name).strip()[:120]
+    return name or "image"
+
+
+def file_stem(name: str) -> str:
+    """Safe stem for files written to disk and served back."""
+    stem = re.sub(r"[^\w.-]+", "-", Path(name).stem, flags=re.UNICODE).strip(".-")
+    return stem[:60] or "visuel"
+
+
+def color(body: dict, key: str, default: str | None) -> str | None:
+    """A ``#rrggbb`` field of a JSON body (or the default), 400 if malformed."""
+    value = body.get(key) or default
+    if value is None:
+        return None
+    try:
+        hex_to_rgb(str(value))
+    except ValueError:
+        raise HTTPException(400, f"{key} : couleur #rrggbb attendue")
+    return str(value)
+
+
+def choice(body: dict, key: str, default: str, allowed: tuple[str, ...]) -> str:
+    value = str(body.get(key) or default)
+    if value not in allowed:
+        raise HTTPException(400, f"{key} : une valeur parmi {', '.join(allowed)}")
+    return value
+
+
+def number(body: dict, key: str, default: float, lo: float, hi: float) -> float:
+    """Read a numeric field of a JSON body, 400 if missing the bounds."""
+    value = body.get(key, default)
+    try:
+        value = float(default if value is None else value)
+    except (TypeError, ValueError):
+        raise HTTPException(400, f"{key} : nombre attendu")
+    if not math.isfinite(value) or not lo <= value <= hi:
+        raise HTTPException(400, f"{key} : valeur hors limites ({lo:g} à {hi:g})")
+    return value
 
 
 @dataclass
@@ -160,7 +207,7 @@ def create_app(workspace: str | Path = "workspace") -> FastAPI:
             if not data:
                 continue
             try:
-                asset = store.add(upload_file.filename or "image", data)
+                asset = store.add(clean_name(upload_file.filename), data)
             except Exception as error:
                 raise HTTPException(400, f"fichier illisible : {error}")
             created.append(payload(asset))
@@ -310,6 +357,9 @@ def create_app(workspace: str | Path = "workspace") -> FastAPI:
         except (KeyError, ValueError) as error:
             raise HTTPException(400, str(error).strip("'\""))
 
+    def output_url(job: str, path: Path) -> str:
+        return f"/api/sorties/{job}/{quote(path.name)}"
+
     def save_thumb(image, path: Path, size: int = 900) -> None:
         h, w = image.shape[:2]
         save_image(resize(image, *aspect_fit(w, h, size, size)), path)
@@ -322,7 +372,8 @@ def create_app(workspace: str | Path = "workspace") -> FastAPI:
     def inspect(asset_id: str, body: dict) -> dict:
         asset = asset_or_404(asset_id)
         return inspect_artwork(load_rgba(asset.path), product_or_400(body),
-                               body.get("orientation", "auto"))
+                               choice(body, "orientation", "auto",
+                                      ("auto", "portrait", "landscape")))
 
     @app.post("/api/assets/{asset_id}/print")
     def press_ready(asset_id: str, body: dict) -> dict:
@@ -331,18 +382,22 @@ def create_app(workspace: str | Path = "workspace") -> FastAPI:
         if product.family == "dtf":
             raise HTTPException(400, "produit DTF : utilisez /dtf")
         options = PressOptions(
-            fit=body.get("fit", "cover"),
-            bleed_mode=body.get("bleed_mode", "mirror"),
-            orientation=body.get("orientation", "auto"),
+            fit=choice(body, "fit", "cover", ("cover", "contain")),
+            bleed_mode=choice(body, "bleed_mode", "mirror", ("mirror", "edge", "scale")),
+            orientation=choice(body, "orientation", "auto",
+                               ("auto", "portrait", "landscape")),
             crop_marks=bool(body.get("crop_marks", True)),
-            background=body.get("background") or "#ffffff",
-            cmyk=CmykOptions(tac=float(body.get("tac", 300))),
-            title=Path(asset.name).stem)
-        result = make_press_ready(load_rgba(asset.path), product, options)
+            background=color(body, "background", "#ffffff"),
+            cmyk=CmykOptions(tac=number(body, "tac", 300, 150, 400)),
+            title=file_stem(asset.name))
+        try:
+            result = make_press_ready(load_rgba(asset.path), product, options)
+        except ValueError as error:
+            raise HTTPException(400, str(error))
         job = uuid.uuid4().hex[:10]
         job_dir = store.out_dir / job
         job_dir.mkdir(parents=True, exist_ok=True)
-        stem = f"{Path(asset.name).stem}-{product.key}"
+        stem = f"{file_stem(asset.name)}-{product.key}"
         pdf = job_dir / f"{stem}.pdf"
         pdf.write_bytes(result.pdf)
         save_thumb(result.proof(), job_dir / "epreuve.png")
@@ -350,7 +405,7 @@ def create_app(workspace: str | Path = "workspace") -> FastAPI:
             "job": job,
             "product": product.as_dict(),
             "file": pdf.name,
-            "pdf": f"/api/sorties/{job}/{pdf.name}",
+            "pdf": output_url(job, pdf),
             "proof": f"/api/sorties/{job}/epreuve.png",
             "specs": result.specs,
             "steps": result.steps,
@@ -363,34 +418,38 @@ def create_app(workspace: str | Path = "workspace") -> FastAPI:
     def dtf(asset_id: str, body: dict) -> dict:
         asset = asset_or_404(asset_id)
         product = product_or_400({"product": "dtf-a4", **body})
+        preview_color = color(body, "preview_garment", None)
         options = DtfOptions(
-            remove_background=body.get("remove_background", "auto"),
-            garment=body.get("garment") or None,
-            garment_tolerance=float(body.get("garment_tolerance", 14)),
-            edges=body.get("edges", "threshold"),
-            halftone_lpi=float(body.get("lpi", 35)),
-            choke_mm=float(body.get("choke_mm", 0.25)),
-            margin_mm=float(body.get("margin_mm", 2)),
+            remove_background=choice(body, "remove_background", "auto",
+                                     ("auto", "yes", "no")),
+            garment=color(body, "garment", None),
+            garment_tolerance=number(body, "garment_tolerance", 14, 0, 100),
+            edges=choice(body, "edges", "threshold", ("threshold", "halftone")),
+            halftone_lpi=number(body, "lpi", 35, 5, 150),
+            choke_mm=number(body, "choke_mm", 0.25, 0, 3),
+            margin_mm=number(body, "margin_mm", 2, 0, 50),
             mirror=bool(body.get("mirror", False)))
-        result = make_dtf(load_rgba(asset.path), product, options)
+        try:
+            result = make_dtf(load_rgba(asset.path), product, options)
+        except ValueError as error:
+            raise HTTPException(400, str(error))
         job = uuid.uuid4().hex[:10]
         job_dir = store.out_dir / job
-        stem = f"{Path(asset.name).stem}-{product.key}"
+        stem = f"{file_stem(asset.name)}-{product.key}"
         film = save_image(result.artwork, job_dir / f"{stem}.png", dpi=product.dpi)
         white = save_image(result.white_plate_rgba(), job_dir / f"{stem}-blanc.png",
                            dpi=product.dpi)
         pdf = job_dir / f"{stem}.pdf"
         pdf.write_bytes(result.pdf)
-        save_thumb(result.preview(body.get("preview_garment") or
-                                  body.get("garment") or "#2b2b2b"),
+        save_thumb(result.preview(preview_color or options.garment or "#2b2b2b"),
                    job_dir / "epreuve.png")
         report = {
             "job": job,
             "product": product.as_dict(),
             "file": film.name,
-            "png": f"/api/sorties/{job}/{film.name}",
-            "white": f"/api/sorties/{job}/{white.name}",
-            "pdf": f"/api/sorties/{job}/{pdf.name}",
+            "png": output_url(job, film),
+            "white": output_url(job, white),
+            "pdf": output_url(job, pdf),
             "proof": f"/api/sorties/{job}/epreuve.png",
             "specs": result.specs,
             "steps": result.steps,
@@ -467,8 +526,9 @@ def create_app(workspace: str | Path = "workspace") -> FastAPI:
 
     @app.get("/api/sorties/{job}/{name}")
     def download_output(job: str, name: str) -> Response:
-        path = (store.out_dir / job / name).resolve()
-        if not str(path).startswith(str(store.out_dir.resolve())) or not path.exists():
+        root = store.out_dir.resolve()
+        path = (root / job / name).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
             raise HTTPException(404, "fichier introuvable")
         media = {".pdf": "application/pdf", ".json": "application/json"}.get(
             path.suffix, "image/png")

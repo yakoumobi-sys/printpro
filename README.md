@@ -258,6 +258,11 @@ Le serveur expose une API REST (documentation interactive sur `/api/docs`) :
 | `GET` | `/api/assets/{id}/svg` · `/download` · `/quality` | récupérer les résultats |
 | `POST` | `/api/montage` | générer les planches (PNG + PDF) |
 
+Les paramètres sont validés (400 sinon) : formats sur mesure de 5 à 3000 mm,
+fond perdu de 0 à 20 mm, 72 à 1200 dpi, encrage de 150 à 400 %, et 150 Mpx au
+plus par fichier produit pour borner la mémoire. Les noms de fichiers importés
+sont nettoyés avant affichage et avant d'être utilisés sur le disque.
+
 ---
 
 ## Formats de planche fournis

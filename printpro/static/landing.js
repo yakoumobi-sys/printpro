@@ -42,8 +42,8 @@ async function busy(text, fn) {
   finally { $("busy").classList.remove("on"); }
 }
 
-const esc = (text) => String(text).replace(/[&<>"]/g,
-  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const esc = (text) => String(text).replace(/[&<>"']/g,
+  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmt = (n, d = 0) => Number(n).toLocaleString("fr-FR", { maximumFractionDigits: d });
 const bytes = (n) => n > 1048576 ? `${fmt(n / 1048576, 1)} Mo` : `${fmt(n / 1024)} Ko`;
 const ICON = { ok: "✓", warn: "!", fail: "✕" };
@@ -58,7 +58,9 @@ function setFamily(family) {
   state.family = family;
   document.body.dataset.family = family;
   document.querySelectorAll("[data-family]").forEach((button) => {
-    if (button.tagName === "BUTTON") button.classList.toggle("on", button.dataset.family === family);
+    if (button.tagName !== "BUTTON") return;
+    button.classList.toggle("on", button.dataset.family === family);
+    button.setAttribute("aria-selected", String(button.dataset.family === family));
   });
   fillProducts();
   $("result").hidden = true;
@@ -69,7 +71,7 @@ function fillProducts() {
   const select = $("product");
   select.innerHTML = state.products
     .filter((p) => p.family === state.family)
-    .map((p) => `<option value="${p.key}">${esc(p.label)} — ${fmt(p.width_mm)} × ${fmt(p.height_mm)} mm</option>`)
+    .map((p) => `<option value="${esc(p.key)}">${esc(p.label)} — ${fmt(p.width_mm)} × ${fmt(p.height_mm)} mm</option>`)
     .join("");
   select.value = state.product[state.family];
 }
@@ -184,7 +186,7 @@ function showResult(report, isDtf) {
     ? [["Film PNG", report.png, true], ["Couche blanche", report.white], ["PDF d'épreuve", report.pdf]]
     : [["Télécharger le PDF/X-1a", report.pdf, true], ["Épreuve PNG", report.proof]];
   $("downloads").innerHTML = links.map(([text, href, main]) =>
-    `<a class="btn ${main ? "btn-grad" : "btn-ghost"}" href="${href}" download>${esc(text)}</a>`).join("");
+    `<a class="btn ${main ? "btn-grad" : "btn-ghost"}" href="${esc(href)}" download>${esc(text)}</a>`).join("");
   $("res-steps").innerHTML = report.steps.map((step) => `<li>${esc(step)}</li>`).join("");
   $("result").hidden = false;
   $("result").scrollIntoView({ behavior: "smooth", block: "start" });

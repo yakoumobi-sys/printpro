@@ -111,3 +111,27 @@ def test_inspect_artwork_flags_problems():
     assert report["upscale_factor"] > 10
     dtf = inspect_artwork(gradient(), get_product("dtf-coeur"))
     assert {c["key"] for c in dtf["checks"]} >= {"alpha", "edges", "white"}
+
+
+def test_product_bounds():
+    for spec in ("nanxnan", "0x10", "10x99999", "infx10"):
+        with pytest.raises(ValueError):
+            resolve_product(spec)
+    with pytest.raises(ValueError):
+        resolve_product("flyer-a5", dpi=10_000)
+    with pytest.raises(ValueError):
+        resolve_product("flyer-a5", bleed_mm=-1)
+
+
+def test_oversized_job_is_refused_before_allocating():
+    with pytest.raises(ValueError, match="trop grand"):
+        make_press_ready(gradient(), resolve_product("3000x3000", dpi=600))
+
+
+def test_cover_crops_before_upscaling():
+    # A 20:1 panorama on a square must not be upscaled to 20× the canvas.
+    panorama = gradient(400, 20)
+    result = make_press_ready(panorama, get_product("carte-visite"),
+                              PressOptions(orientation="portrait"))
+    assert result.preflight.passed
+    assert any("recadrage centré" in step for step in result.steps)

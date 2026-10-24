@@ -27,6 +27,7 @@ from .bgremove import BgOptions, remove_background
 from .imaging import (MM_PER_INCH, delta_e, hex_to_rgb, mm_to_px, mirror,
                       resize, rgb_to_lab, trim)
 from .pdfwriter import Page, PdfWriter, PlacedImage
+from .prepress import MAX_JOB_PIXELS, check_budget
 from .products import Product
 from .upscale import UpscaleOptions, upscale
 
@@ -112,13 +113,15 @@ def make_dtf(image: np.ndarray, product: Product,
     if (iw > ih) != (w_mm > h_mm) and w_mm != h_mm:
         w_mm, h_mm = h_mm, w_mm
     cw, ch = mm_to_px(w_mm, dpi), mm_to_px(h_mm, dpi)
+    check_budget(cw, ch, dpi)
     margin = mm_to_px(opt.margin_mm, dpi) if opt.margin_mm > 0 else 0
     scale = min((cw - 2 * margin) / iw, (ch - 2 * margin) / ih)
     tw, th = max(1, int(iw * scale)), max(1, int(ih * scale))
     native_dpi = dpi / scale
     if scale > 1.02:
         image = upscale(image, UpscaleOptions(target_width=tw, target_height=th,
-                                              method=opt.upscale_method)).image
+                                              method=opt.upscale_method,
+                                              max_pixels=MAX_JOB_PIXELS)).image
         steps.append(f"agrandissement ×{scale:.2f} → {tw}×{th} px")
     else:
         image = resize(image, tw, th)

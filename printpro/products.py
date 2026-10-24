@@ -60,9 +60,28 @@ def get_product(key: str) -> Product:
     return PRODUCTS[key]
 
 
+LIMITS = {"size_mm": (5.0, 3000.0), "bleed_mm": (0.0, 20.0), "dpi": (72, 1200)}
+
+
+def _bounded(name: str, value, kind=float):
+    """Parse *value* and check it against :data:`LIMITS` (ValueError if not)."""
+    try:
+        number = kind(float(value))
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError(f"{name} invalide : {value!r}") from None
+    lo, hi = LIMITS[name]
+    if not (lo <= number <= hi):      # also rejects NaN
+        raise ValueError(f"{name} hors limites : {value!r} (de {lo:g} à {hi:g})")
+    return number
+
+
 def custom_product(width_mm: float, height_mm: float, bleed_mm: float = 3.0,
                    dpi: int = 300, family: str = "papier") -> Product:
     """A product for a size that is not in the catalogue (``320x450``)."""
+    width_mm = _bounded("size_mm", width_mm)
+    height_mm = _bounded("size_mm", height_mm)
+    bleed_mm = _bounded("bleed_mm", bleed_mm)
+    dpi = _bounded("dpi", dpi, int)
     return Product(f"{width_mm:g}x{height_mm:g}",
                    f"Sur mesure {width_mm:g} × {height_mm:g}", family,
                    float(width_mm), float(height_mm), bleed_mm=float(bleed_mm),
@@ -72,7 +91,11 @@ def custom_product(width_mm: float, height_mm: float, bleed_mm: float = 3.0,
 def resolve_product(spec: str, bleed_mm: float | None = None,
                     dpi: int | None = None) -> Product:
     """``"affiche-a3"`` or ``"320x450"`` → :class:`Product`."""
-    spec = spec.strip().lower()
+    spec = str(spec).strip().lower()
+    if bleed_mm is not None:
+        bleed_mm = _bounded("bleed_mm", bleed_mm)
+    if dpi is not None:
+        dpi = _bounded("dpi", dpi, int)
     if spec in PRODUCTS:
         product = PRODUCTS[spec]
         if bleed_mm is None and dpi is None:

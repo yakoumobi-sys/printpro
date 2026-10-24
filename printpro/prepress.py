@@ -27,6 +27,8 @@ from .preflight import PreflightReport, preflight_pdf
 from .products import Product
 from .upscale import UpscaleOptions, upscale
 
+MAX_JOB_PIXELS = 150_000_000      # ~600 Mo par copie RGBA : garde-fou mémoire
+
 
 @dataclass
 class PressOptions:
@@ -158,6 +160,7 @@ def make_press_ready(image: np.ndarray, product: Product,
     tw, th = mm_to_px(w, dpi), mm_to_px(h, dpi)
     bp = int(round(b / MM_PER_INCH * dpi)) if b > 0 else 0
     fw, fh = tw + 2 * bp, th + 2 * bp
+    check_budget(fw, fh, dpi)
     background = hex_to_rgb(opt.background)
     ih, iw = image.shape[:2]
 
@@ -174,15 +177,13 @@ def make_press_ready(image: np.ndarray, product: Product,
         canvas[y0:y0 + art.shape[0], x0:x0 + art.shape[1]] = flat
         steps.append(f"image entière centrée, fond {opt.background}")
     elif opt.bleed_mode == "scale" or bp == 0:
-        scale = max(fw / iw, fh / ih)
-        art, native_scale = _scaled(image, scale, opt, steps)
-        canvas = flatten(_center_crop(art, fw, fh), background)
+        art, native_scale = _cover(image, fw, fh, opt, steps)
+        canvas = flatten(art, background)
         if bp:
             steps.append(f"fond perdu {b:g} mm pris dans l'image (léger zoom)")
     else:
-        scale = max(tw / iw, th / ih)
-        art, native_scale = _scaled(image, scale, opt, steps)
-        trim_art = flatten(_center_crop(art, tw, th), background)
+        art, native_scale = _cover(image, tw, th, opt, steps)
+        trim_art = flatten(art, background)
         mode = "symmetric" if opt.bleed_mode == "mirror" else "edge"
         canvas = np.pad(trim_art, ((bp, bp), (bp, bp), (0, 0)), mode=mode)
         steps.append(f"fond perdu {b:g} mm ajouté par "
@@ -268,7 +269,8 @@ def _scaled(image: np.ndarray, scale: float, opt: PressOptions,
     tw, th = max(1, int(round(iw * scale))), max(1, int(round(ih * scale)))
     if scale > 1.02:
         result = upscale(image, UpscaleOptions(target_width=tw, target_height=th,
-                                               method=opt.upscale_method))
+                                               method=opt.upscale_method,
+                                               max_pixels=MAX_JOB_PIXELS))
         steps.append(f"agrandissement ×{scale:.2f} ({result.method}) : "
                      f"{iw}×{ih} → {tw}×{th} px")
         return result.image, scale
@@ -278,11 +280,35 @@ def _scaled(image: np.ndarray, scale: float, opt: PressOptions,
     return image, 1.0
 
 
-def _center_crop(image: np.ndarray, w: int, h: int) -> np.ndarray:
+def check_budget(width_px: int, height_px: int, dpi: int) -> None:
+    if width_px * height_px > MAX_JOB_PIXELS:
+        raise ValueError(
+            f"fichier trop grand : {width_px}×{height_px} px à {dpi} dpi "
+            f"(max {MAX_JOB_PIXELS / 1e6:.0f} Mpx) — baissez la résolution")
+
+
+def _cover(image: np.ndarray, w: int, h: int, opt: PressOptions,
+           steps: list[str]) -> tuple[np.ndarray, float]:
+    """Fill exactly ``w × h`` px: crop the source to the target ratio first,
+    so a panorama on a square never upscales pixels that get thrown away."""
     ih, iw = image.shape[:2]
-    if iw < w or ih < h:          # rounding: pad by edge replication
-        image = np.pad(image, ((0, max(0, h - ih)), (0, max(0, w - iw)), (0, 0)),
-                       mode="edge")
-        ih, iw = image.shape[:2]
-    x0, y0 = (iw - w) // 2, (ih - h) // 2
-    return image[y0:y0 + h, x0:x0 + w]
+    if iw * h > ih * w:                      # source wider than target
+        cw, ch = max(1, int(round(ih * w / h))), ih
+    else:
+        cw, ch = iw, max(1, int(round(iw * h / w)))
+    x0, y0 = (iw - cw) // 2, (ih - ch) // 2
+    cropped = image[y0:y0 + ch, x0:x0 + cw]
+    if (cw, ch) != (iw, ih):
+        steps.append(f"recadrage centré {iw}×{ih} → {cw}×{ch} px")
+    scale = w / cw
+    if scale > 1.02:
+        result = upscale(cropped, UpscaleOptions(target_width=w, target_height=h,
+                                                 method=opt.upscale_method,
+                                                 max_pixels=MAX_JOB_PIXELS))
+        steps.append(f"agrandissement ×{scale:.2f} ({result.method}) : "
+                     f"{cw}×{ch} → {w}×{h} px")
+        return result.image, scale
+    if (cw, ch) != (w, h):
+        steps.append(f"mise à l'échelle ×{scale:.2f} : {cw}×{ch} → {w}×{h} px")
+        return resize(cropped, w, h), scale
+    return cropped, 1.0

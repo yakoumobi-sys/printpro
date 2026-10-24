@@ -205,7 +205,11 @@ class PdfWriter:
             f"/Producer (PrintPro) /CreationDate ({stamp}) /ModDate ({stamp}) "
             f"/Trapped /False /GTS_PDFXVersion (PDF/X-1:2001) "
             f"/GTS_PDFXConformance (PDF/X-1a:2001) >>").encode("latin-1"))
-        digest = hashlib.md5(b"".join(objects[:8]) + stamp.encode()).hexdigest()
+        # File identifier, not a security feature (ISO 32000 suggests MD5).
+        ident = hashlib.md5(stamp.encode(), usedforsecurity=False)
+        for payload in objects[:8]:
+            ident.update(payload)
+        digest = ident.hexdigest()
         return _serialize(objects, catalog_id, info_id, version="1.3",
                           doc_id=digest)
 

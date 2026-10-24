@@ -140,3 +140,40 @@ def test_dtf_job(client, upload):
     assert report["preflight"]["passed"]
     for key in ("png", "white", "pdf", "proof"):
         assert client.get(report[key]).status_code == 200
+
+
+def test_upload_name_is_sanitised(client, disc_on_white):
+    image, _ = disc_on_white
+    hostile = '../x"><img src=x onerror=alert(1)>.png'
+    asset = client.post("/api/assets", files={
+        "files": (hostile, io.BytesIO(encode(image, "PNG")), "image/png")}).json()[0]
+    assert not set('<>"') & set(asset["name"])
+    report = client.post(f"/api/assets/{asset['id']}/print",
+                         json={"product": "carte-visite"}).json()
+    assert not set('<>"\' ') & set(report["pdf"])
+    assert client.get(report["pdf"]).status_code == 200
+
+
+@pytest.mark.parametrize("route,body", [
+    ("inspect", {"product": "nanxnan"}),
+    ("inspect", {"product": "100000x100000"}),
+    ("inspect", {"product": "flyer-a5", "dpi": "abc"}),
+    ("inspect", {"product": "flyer-a5", "orientation": "diagonal"}),
+    ("print", {"product": "flyer-a5", "tac": "x"}),
+    ("print", {"product": "flyer-a5", "tac": 1000}),
+    ("print", {"product": "flyer-a5", "background": "rouge"}),
+    ("print", {"product": "flyer-a5", "fit": "zoom"}),
+    ("print", {"product": "3000x3000", "dpi": 1200}),
+    ("dtf", {"product": "dtf-coeur", "garment": "#zzz"}),
+    ("dtf", {"product": "dtf-coeur", "choke_mm": "inf"}),
+    ("dtf", {"product": "dtf-coeur", "edges": "flou"}),
+])
+def test_invalid_input_is_a_400(client, upload, route, body):
+    response = client.post(f"/api/assets/{upload['id']}/{route}", json=body)
+    assert response.status_code == 400, response.text
+
+
+def test_outputs_cannot_escape_the_workspace(client, upload):
+    for url in ("/api/sorties/..%2F..%2F/etc",
+                "/api/sorties/x/..%2F..%2Fassets", "/api/sorties/nope/rapport.json"):
+        assert client.get(url).status_code == 404

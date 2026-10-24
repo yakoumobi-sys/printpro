@@ -111,6 +111,8 @@ def flatten(rgba: np.ndarray, background=(255, 255, 255)) -> np.ndarray:
     rgba = np.asarray(rgba, dtype=np.uint8)
     if rgba.shape[2] == 3:
         return np.dstack([rgba, np.full(rgba.shape[:2], 255, np.uint8)])
+    if rgba[:, :, 3].min() == 255:            # already opaque: nothing to blend
+        return rgba.copy()
     alpha = rgba[:, :, 3:4].astype(np.float32) / 255.0
     bg = np.array(background[:3], dtype=np.float32).reshape(1, 1, 3)
     rgb = rgba[:, :, :3].astype(np.float32) * alpha + bg * (1.0 - alpha)
