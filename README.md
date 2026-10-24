@@ -114,8 +114,7 @@ sont sur **http://127.0.0.1:8000/atelier**.
 
 ### Déploiement Vercel
 
-`app.py` expose l'application (`app`) au format attendu par Vercel, et
-`vercel.json` exclut les tests, la documentation et les exemples du paquet.
+`app.py` expose l'application (`app`) au format attendu par Vercel.
 Sur Vercel, l'espace de travail est placé dans `/tmp/printpro-workspace`
 (`PRINTPRO_WORKSPACE` pour le changer).
 
