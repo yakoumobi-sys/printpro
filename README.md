@@ -112,6 +112,19 @@ sont sur **http://127.0.0.1:8000/atelier**.
 
 ---
 
+### Déploiement Vercel
+
+`app.py` expose l'application (`app`) au format attendu par Vercel, et
+`vercel.json` exclut les tests, la documentation et les exemples du paquet.
+Sur Vercel, l'espace de travail est placé dans `/tmp/printpro-workspace`
+(`PRINTPRO_WORKSPACE` pour le changer).
+
+Limites propres aux fonctions serverless : corps de requête et de réponse de
+4,5 Mo au plus (un PDF d'affiche A3 à 300 dpi dépasse largement), disque
+`/tmp` non partagé entre instances (un visuel importé peut être « introuvable »
+si la requête suivante tombe sur une autre instance). Pour un usage réel,
+préférez `./run.sh` en local ou un hébergement avec disque persistant.
+
 ## Ligne de commande
 
 ```bash

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import shutil
 import time
@@ -39,6 +40,17 @@ from .vectorize import VectorOptions, vectorize
 
 STATIC_DIR = Path(__file__).parent / "static"
 THUMB_MAX = 420
+
+
+def default_workspace() -> Path:
+    """Where uploads and outputs live: ``PRINTPRO_WORKSPACE``, else
+    ``/tmp`` on serverless hosts (read-only code directory), else
+    ``./workspace``."""
+    if os.environ.get("PRINTPRO_WORKSPACE"):
+        return Path(os.environ["PRINTPRO_WORKSPACE"])
+    if os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+        return Path("/tmp/printpro-workspace")
+    return Path("workspace")
 
 
 def clean_name(filename: str | None) -> str:
