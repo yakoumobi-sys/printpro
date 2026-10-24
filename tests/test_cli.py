@@ -87,3 +87,21 @@ def test_montage_custom_page_size(tmp_path, source):
 
 def test_montage_without_source_fails(tmp_path, capsys):
     assert main(["montage", "-o", str(tmp_path)]) == 2
+
+
+def test_cli_print_and_dtf(tmp_path, disc_on_white):
+    from printpro.cli import main
+    from printpro.imaging import save_image
+    image, _ = disc_on_white
+    source = save_image(image, tmp_path / "visuel.png")
+    pdf = tmp_path / "out" / "flyer.pdf"
+    assert main(["imprimer", str(source), "-o", str(pdf), "--produit", "flyer-a6",
+                 "--epreuve", str(tmp_path / "proof.png")]) == 0
+    assert pdf.read_bytes().startswith(b"%PDF-1.3")
+    assert (tmp_path / "proof.png").exists()
+    assert main(["imprimer", str(source), "-o", str(tmp_path / "x.pdf"),
+                 "--produit", "dtf-a4"]) == 2
+    assert main(["dtf", str(source), "-o", str(tmp_path / "dtf"),
+                 "--produit", "dtf-coeur", "--trame"]) == 0
+    assert (tmp_path / "dtf" / "visuel-blanc.png").exists()
+    assert main(["produits"]) == 0

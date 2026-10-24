@@ -2,6 +2,8 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
+const esc = (text) => String(text).replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const state = { assets: [], current: null, selected: new Set(), caps: null };
 
 /* ---------------------------------------------------------------- utils */
@@ -49,7 +51,7 @@ function renderLibrary() {
       <input class="pick" type="checkbox" ${state.selected.has(asset.id) ? "checked" : ""}>
       <button class="kill" title="Retirer">✕</button>
       <img src="${asset.preview}" alt="">
-      <div class="meta">${asset.name} · ${asset.width}×${asset.height}</div>`;
+      <div class="meta">${esc(asset.name)} · ${asset.width}×${asset.height}</div>`;
     card.querySelector("img").addEventListener("click", () => select(asset.id));
     card.querySelector(".meta").addEventListener("click", () => select(asset.id));
     card.querySelector(".pick").addEventListener("change", (event) => {
@@ -90,7 +92,7 @@ function renderStage() {
     $("quality").textContent = "—";
     return;
   }
-  stage.innerHTML = `<img src="${current.preview}" alt="${current.name}">`;
+  stage.innerHTML = `<img src="${esc(current.preview)}" alt="${esc(current.name)}">`;
   const steps = current.history.slice(1).join(" → ");
   $("dims").textContent = `${current.width}×${current.height} px` +
     ` · ${current.native_mm[0]}×${current.native_mm[1]} mm à 300 dpi` +
@@ -225,7 +227,7 @@ function renderMontageItems() {
     row.className = "mitem";
     row.innerHTML = `
       <img src="${item.preview}" alt="">
-      <span class="name" title="${item.name}">${item.name}</span>
+      <span class="name" title="${esc(item.name)}">${esc(item.name)}</span>
       <input type="number" value="${item.width_mm}" min="1" max="2000" step="1" title="largeur en mm">
       <input type="number" value="${item.quantity}" min="1" max="999" step="1" title="quantité">`;
     const [width, quantity] = row.querySelectorAll("input");
@@ -279,12 +281,12 @@ async function runMontage() {
   ].join("");
 
   $("m-links").innerHTML =
-    `<a href="${result.pdf}" download>Télécharger le PDF</a>` +
+    `<a href="${esc(result.pdf)}" download>Télécharger le PDF</a>` +
     result.sheets.map((url, index) =>
-      `<a class="alt" href="${url}" download>PNG ${index + 1}</a>`).join("");
+      `<a class="alt" href="${esc(url)}" download>PNG ${index + 1}</a>`).join("");
 
   $("sheets").innerHTML = result.previews
-    .map((url) => `<img src="${url}" alt="planche">`).join("");
+    .map((url) => `<img src="${esc(url)}" alt="planche">`).join("");
 
   (result.warnings || []).forEach((warning) => toast(warning, true));
   toast(`${result.placed} visuels sur ${result.pages} planche(s)`);

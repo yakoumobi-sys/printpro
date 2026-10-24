@@ -3,230 +3,407 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PrintPro — atelier de préparation pour l'impression</title>
+<title>PrintPro — fichiers prêts pour l'imprimeur</title>
+<meta name="description" content="Transformez une image générée par IA en PDF/X-1a prêt pour la presse ou en film DTF : 300 dpi, CMJN, fond perdu, traits de coupe, contrôle prépresse. En local.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23d92b3c'/%3E%3Ctext x='16' y='22' font-size='16' font-family='sans-serif' font-weight='bold' fill='white' text-anchor='middle'%3EP%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/landing.css">
 </head>
-<body>
+<body data-family="papier">
 
-<header>
-  <div class="logo">PP</div>
-  <h1>PrintPro</h1>
-  <span class="tag">vectoriser · agrandir · détourer · monter la planche</span>
-  <span class="spacer"></span>
-  <button class="mini" id="clear">Vider l'atelier</button>
+<header class="top">
+  <div class="wrap bar">
+    <a class="brand" href="/">Print<span class="grad">Pro</span><span class="badge">Local</span></a>
+    <nav class="links">
+      <a href="#etapes">Comment ça marche</a>
+      <a href="#fichier">Le fichier livré</a>
+      <a href="#outils">Outils</a>
+      <a href="#faq">FAQ</a>
+      <a href="/atelier">Atelier avancé</a>
+    </nav>
+    <a class="btn btn-grad btn-sm" href="#depot">Commencer <span aria-hidden="true">→</span></a>
+  </div>
 </header>
 
-<div class="layout">
+<main>
+<!-- =============================================================== hero -->
+<section class="hero" id="depot">
+  <div class="grid-bg" aria-hidden="true"></div>
+  <div class="glow" aria-hidden="true"></div>
+  <div class="wrap narrow center">
+    <span class="pill"><i class="dot"></i>Prêt pour la presse en moins d'une minute</span>
+    <h1>Le contrôle prépresse de l'imprimeur,<br><span class="grad">sans les allers‑retours.</span></h1>
+    <p class="lead only-papier">Déposez n'importe quelle image générée par IA. PrintPro l'agrandit à 300&nbsp;dpi,
+      la sépare en CMJN, ajoute le fond perdu et les traits de coupe, puis exporte un PDF/X-1a
+      que le contrôle de votre imprimeur accepte sans rien redemander.</p>
+    <p class="lead only-dtf">Déposez n'importe quelle image générée par IA. PrintPro la détoure, retire la couleur
+      du textile, rend les bords nets et génère la sous-couche blanche&nbsp;: un film que la
+      presse transfère proprement, sans liseré ni voile.</p>
 
-  <!-- ------------------------------------------------ bibliothèque -->
-  <section class="panel">
-    <h2>1. Visuels</h2>
-    <div class="body">
-      <div id="drop">
-        <strong>Déposer des images</strong>
-        PNG, JPEG, WEBP, TIFF — ou cliquer
-        <input type="file" id="file" multiple accept="image/*" hidden>
+    <div class="switch-row">
+      <div class="switch" role="tablist" aria-label="Support d'impression">
+        <span class="switch-label">J'imprime sur</span>
+        <button role="tab" data-family="papier" class="on">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z"/></svg>
+          Papier</button>
+        <button role="tab" data-family="dtf">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.4 6.6 16 4a4 4 0 0 1-8 0L3.6 6.6a1 1 0 0 0-.5 1.2l1.2 3.6a1 1 0 0 0 1 .7H7v9a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-9h1.7a1 1 0 0 0 1-.7l1.2-3.6a1 1 0 0 0-.5-1.2z"/></svg>
+          DTF</button>
       </div>
-      <div id="library"></div>
-      <p class="note" id="lib-note">Aucun visuel importé pour l'instant.</p>
-    </div>
-  </section>
-
-  <!-- ------------------------------------------------ aperçu -->
-  <section class="panel">
-    <h2>2. Aperçu</h2>
-    <div id="stage"><div class="empty">Importez un visuel pour commencer.</div></div>
-    <div class="viewer-bar">
-      <span id="dims" class="muted">—</span>
-      <span class="spacer"></span>
-      <button class="mini" id="undo">Annuler l'étape</button>
-      <a class="mini" id="dl-png" href="#" download>PNG</a>
-      <a class="mini" id="dl-svg" href="#" download>SVG</a>
-    </div>
-    <div class="viewer-bar">
-      <span class="muted">Impression à</span>
-      <input type="number" id="print-mm" value="100" min="5" max="2000" step="5" style="width:78px">
-      <span class="muted">mm de large →</span>
-      <span id="quality" class="muted">—</span>
-    </div>
-  </section>
-
-  <!-- ------------------------------------------------ outils -->
-  <section class="panel">
-    <h2>3. Traitements</h2>
-    <div class="tabs">
-      <button data-tab="bg" class="on">Détourage</button>
-      <button data-tab="up">Agrandir</button>
-      <button data-tab="vec">Vectoriser</button>
     </div>
 
-    <div class="tool on" id="tab-bg">
-      <div class="field">
-        <label>Méthode</label>
-        <select id="bg-method">
-          <option value="auto">Automatique (détecte le fond)</option>
-          <option value="color">Couleur précise</option>
-          <option value="ai">IA (rembg, si installé)</option>
-        </select>
-      </div>
-      <div class="field" id="bg-color-field" style="display:none">
-        <label>Couleur du fond</label>
-        <input type="color" id="bg-color" value="#ffffff">
-      </div>
-      <div class="field">
-        <label>Tolérance <span class="val" id="bg-tol-v">12</span></label>
-        <input type="range" id="bg-tol" min="2" max="45" step="1" value="12">
-      </div>
-      <div class="field">
-        <label>Douceur du bord <span class="val" id="bg-soft-v">6</span></label>
-        <input type="range" id="bg-soft" min="0" max="30" step="1" value="6">
-      </div>
-      <div class="field">
-        <label>Épaisseur du sujet <span class="val" id="bg-shift-v">0</span> px</label>
-        <input type="range" id="bg-shift" min="-4" max="4" step="1" value="0">
-      </div>
-      <label class="check"><input type="checkbox" id="bg-holes" checked> Rendre transparents les fonds intérieurs</label>
-      <label class="check"><input type="checkbox" id="bg-largest"> Garder uniquement le plus grand sujet</label>
-      <label class="check"><input type="checkbox" id="bg-trim" checked> Rogner les bords vides</label>
-      <button class="action" id="run-bg">Détourer</button>
-      <p class="note" id="bg-note"></p>
+    <div class="product-row">
+      <label for="product">Format</label>
+      <select id="product"></select>
     </div>
 
-    <div class="tool" id="tab-up">
-      <div class="field">
-        <label>Méthode</label>
-        <select id="up-method">
-          <option value="auto">Automatique</option>
-          <option value="vector">Vectorielle (logos, aplats)</option>
-          <option value="edge">Photo (contours + netteté)</option>
-          <option value="lanczos">Lanczos simple</option>
-          <option value="ai">Real-ESRGAN (si installé)</option>
-        </select>
+    <div id="drop" class="drop" tabindex="0" role="button" aria-label="Déposer un visuel">
+      <input type="file" id="file" accept="image/*" hidden>
+      <div class="drop-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
       </div>
-      <div class="field">
-        <label>Cible</label>
-        <div class="inline">
-          <select id="up-mode">
-            <option value="scale">Facteur</option>
-            <option value="mm">Taille d'impression</option>
-          </select>
-          <input type="number" id="up-value" value="2" min="0.2" max="20" step="0.5">
+      <strong>Déposez votre visuel — contrôle d'impression gratuit</strong>
+      <span class="muted">ou cliquez pour parcourir</span>
+      <span class="hint">PNG · JPG · WebP · TIFF — tout reste sur votre machine</span>
+    </div>
+
+    <ul class="chips only-papier">
+      <li>300 DPI</li><li>Fond perdu par produit</li><li>CMJN</li><li>PDF/X-1a</li><li>Traits de coupe</li>
+    </ul>
+    <ul class="chips only-dtf">
+      <li>Sous-couche blanche</li><li>Bords nets</li><li>Couleur textile retirée</li><li>Tramage</li><li>300 DPI</li>
+    </ul>
+  </div>
+
+  <!-- ---------------------------------------------------------- job -->
+  <div class="wrap job" id="job" hidden>
+    <div class="job-grid">
+      <div class="card art">
+        <div class="art-frame"><img id="art-img" alt="Visuel importé"></div>
+        <div class="art-meta">
+          <strong id="art-name">—</strong>
+          <span class="muted" id="art-px">—</span>
         </div>
-      </div>
-      <div class="field" id="up-dpi-field" style="display:none">
-        <label>Résolution (dpi)</label>
-        <select id="up-dpi">
-          <option>150</option><option selected>300</option><option>600</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Débruitage <span class="val" id="up-dn-v">0</span></label>
-        <input type="range" id="up-dn" min="0" max="1" step="0.05" value="0">
-      </div>
-      <div class="field">
-        <label>Netteté <span class="val" id="up-sh-v">0.45</span></label>
-        <input type="range" id="up-sh" min="0" max="1.5" step="0.05" value="0.45">
-      </div>
-      <button class="action" id="run-up">Agrandir</button>
-      <p class="note" id="up-note"></p>
-    </div>
-
-    <div class="tool" id="tab-vec">
-      <div class="field">
-        <label>Mode</label>
-        <select id="vec-mode">
-          <option value="color">Couleurs</option>
-          <option value="bw">Noir et blanc (trait)</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Nombre de couleurs <span class="val" id="vec-col-v">8</span></label>
-        <input type="range" id="vec-colors" min="2" max="32" step="1" value="8">
-      </div>
-      <div class="field">
-        <label>Fidélité du tracé <span class="val" id="vec-det-v">1.0</span> px</label>
-        <input type="range" id="vec-detail" min="0.2" max="4" step="0.1" value="1">
-      </div>
-      <div class="field">
-        <label>Lissage <span class="val" id="vec-sm-v">1.0</span></label>
-        <input type="range" id="vec-smooth" min="0" max="2.5" step="0.1" value="1">
-      </div>
-      <div class="field">
-        <label>Ignorer les détails sous <span class="val" id="vec-area-v">12</span> px²</label>
-        <input type="range" id="vec-area" min="1" max="200" step="1" value="12">
-      </div>
-      <label class="check"><input type="checkbox" id="vec-dropbg" checked> Supprimer la couleur de fond</label>
-      <label class="check"><input type="checkbox" id="vec-replace" checked> Remplacer l'aperçu par le rendu vectoriel</label>
-      <button class="action" id="run-vec">Vectoriser en SVG</button>
-      <p class="note" id="vec-note"></p>
-    </div>
-  </section>
-
-  <!-- ------------------------------------------------ montage -->
-  <section class="panel" style="grid-column: 1 / -1">
-    <h2>4. Montage sur la planche</h2>
-    <div class="body" style="display:grid; grid-template-columns: minmax(280px,1fr) minmax(260px,320px) minmax(300px,1.2fr); gap:18px">
-
-      <div>
-        <p class="note" style="margin-top:0">Visuels retenus (cochez-les dans la bibliothèque) — taille et quantité par visuel :</p>
-        <div id="montage-items"></div>
+        <button class="btn btn-ghost btn-sm" id="replace">Changer de visuel</button>
       </div>
 
-      <div>
-        <div class="field">
-          <label>Format de planche</label>
-          <select id="m-page"></select>
+      <div class="card check">
+        <div class="check-head">
+          <h3>Contrôle gratuit</h3>
+          <span class="tag" id="check-score">—</span>
         </div>
-        <div class="field inline">
-          <div style="flex:1">
-            <label>Orientation</label>
-            <select id="m-orient">
-              <option value="auto">Auto</option>
-              <option value="portrait">Portrait</option>
-              <option value="landscape">Paysage</option>
-            </select>
+        <p class="muted small" id="check-intro">Ce que dirait l'imprimeur de ce fichier, tel quel&nbsp;:</p>
+        <ul class="checks" id="checks"></ul>
+
+        <div class="opts only-papier">
+          <div class="opt">
+            <span>Cadrage</span>
+            <div class="seg" data-name="fit">
+              <button data-value="cover" class="on">Remplir le format</button>
+              <button data-value="contain">Image entière</button>
+            </div>
           </div>
-          <div style="flex:1">
-            <label>Résolution</label>
-            <select id="m-dpi"><option>150</option><option selected>300</option><option>600</option></select>
+          <div class="opt">
+            <span>Fond perdu</span>
+            <div class="seg" data-name="bleed_mode">
+              <button data-value="mirror" class="on">Miroir</button>
+              <button data-value="edge">Étirer</button>
+              <button data-value="scale">Zoom</button>
+            </div>
+          </div>
+          <div class="opt">
+            <span>Orientation</span>
+            <div class="seg" data-name="orientation">
+              <button data-value="auto" class="on">Auto</button>
+              <button data-value="portrait">Portrait</button>
+              <button data-value="landscape">Paysage</button>
+            </div>
+          </div>
+          <label class="tick"><input type="checkbox" id="crop-marks" checked> Traits de coupe</label>
+        </div>
+
+        <div class="opts only-dtf">
+          <div class="opt">
+            <span>Couleur du textile</span>
+            <div class="inline">
+              <input type="color" id="garment" value="#111111">
+              <label class="tick"><input type="checkbox" id="knockout"> la retirer du motif</label>
+            </div>
+          </div>
+          <div class="opt">
+            <span>Bords</span>
+            <div class="seg" data-name="edges">
+              <button data-value="threshold" class="on">Nets</button>
+              <button data-value="halftone">Tramés</button>
+            </div>
+          </div>
+          <div class="opt">
+            <span>Retrait du blanc</span>
+            <div class="inline"><input type="number" id="choke" value="0.25" min="0" max="2" step="0.05"> mm</div>
+          </div>
+          <label class="tick"><input type="checkbox" id="dtf-cut" checked> Détourer le fond s'il est plein</label>
+          <label class="tick"><input type="checkbox" id="dtf-mirror"> Film en miroir</label>
+        </div>
+
+        <button class="btn btn-grad btn-lg" id="run">
+          <span class="only-papier">Préparer le PDF prêt à imprimer</span>
+          <span class="only-dtf">Préparer le film DTF</span>
+        </button>
+        <p class="muted small" id="run-note"></p>
+      </div>
+    </div>
+
+    <!-- -------------------------------------------------------- result -->
+    <div class="result" id="result" hidden>
+      <div class="dark-card">
+        <div class="file-row">
+          <div class="file-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+          </div>
+          <div>
+            <strong id="res-name">—</strong>
+            <span class="dim" id="res-size">—</span>
+          </div>
+          <span class="verified" id="res-status">Vérifié</span>
+        </div>
+        <div class="res-grid">
+          <img id="res-proof" alt="Épreuve écran du fichier">
+          <div>
+            <dl class="spec" id="res-spec"></dl>
           </div>
         </div>
-        <div class="field">
-          <label>Disposition</label>
-          <select id="m-layout">
-            <option value="pack">Optimisée (nesting)</option>
-            <option value="grid">Grille régulière</option>
-            <option value="fill">Remplir la planche</option>
-          </select>
+        <div class="preflight">
+          <h4 id="pf-title">Contrôle PrintPro</h4>
+          <ul class="pf" id="pf-list"></ul>
         </div>
-        <div class="field inline">
-          <div style="flex:1"><label>Marge (mm)</label><input type="number" id="m-margin" value="6" min="0" max="60" step="1"></div>
-          <div style="flex:1"><label>Espacement (mm)</label><input type="number" id="m-space" value="3" min="0" max="40" step="0.5"></div>
-        </div>
-        <div class="field inline">
-          <div style="flex:1"><label>Fond</label><input type="color" id="m-bg" value="#ffffff"></div>
-          <div style="flex:1"><label>Découpe (mm)</label><input type="number" id="m-cut" value="0" min="0" max="12" step="0.5"></div>
-        </div>
-        <label class="check"><input type="checkbox" id="m-transparent"> Fond transparent (DTF, flex)</label>
-        <label class="check"><input type="checkbox" id="m-mirror"> Miroir (transfert, sublimation)</label>
-        <label class="check"><input type="checkbox" id="m-marks"> Traits de coupe</label>
-        <label class="check"><input type="checkbox" id="m-reg"> Repères de calage</label>
-        <label class="check"><input type="checkbox" id="m-outline"> Cadres de contrôle</label>
-        <button class="action" id="run-montage">Générer la planche</button>
-      </div>
-
-      <div>
-        <div class="stats" id="m-stats"></div>
-        <div class="links" id="m-links"></div>
-        <div id="sheets"></div>
+        <div class="downloads" id="downloads"></div>
+        <details class="steps-log">
+          <summary>Journal de préparation</summary>
+          <ol id="res-steps"></ol>
+        </details>
       </div>
     </div>
-  </section>
-</div>
+  </div>
+</section>
 
-<div class="busy" id="busy"><div class="spinner"></div></div>
-<div id="toast"></div>
-<script src="/static/app.js"></script>
+<!-- ============================================================ problem -->
+<section class="section">
+  <div class="wrap">
+    <p class="eyebrow">Le problème</p>
+    <h2>Un beau visuel et un bon fichier,<br><span class="grad">ce n'est pas la même chose.</span></h2>
+    <div class="two">
+      <div class="card list-card">
+        <h3>Pourquoi l'imprimeur renvoie le fichier</h3>
+        <ul class="xlist">
+          <li>RVB au lieu de CMJN</li>
+          <li>Pas de fond perdu au-delà de la coupe</li>
+          <li>Moins de 300 dpi à la taille réelle</li>
+          <li>Ni TrimBox ni traits de coupe</li>
+        </ul>
+        <p class="fix">Chacun de ces points est corrigé avant le téléchargement.</p>
+      </div>
+      <div class="card list-card">
+        <h3>Pourquoi un film DTF sort mal</h3>
+        <ul class="xlist">
+          <li>Pas de couche blanche sous la couleur</li>
+          <li>La couleur du textile est imprimée dans le motif</li>
+          <li>Des bords flous, à moitié transparents</li>
+          <li>De l'encre jusqu'au bord de coupe</li>
+        </ul>
+        <p class="fix">Chacun de ces points est corrigé avant le téléchargement.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================== steps -->
+<section class="section alt" id="etapes">
+  <div class="wrap">
+    <p class="eyebrow">Comment ça marche</p>
+    <div class="head-row">
+      <h2>Quatre étapes,<br><span class="grad">du visuel à la presse.</span></h2>
+      <div class="switch mini" role="tablist" aria-label="Support">
+        <button data-family="papier" class="on">Papier</button>
+        <button data-family="dtf">DTF</button>
+      </div>
+    </div>
+    <p class="sub">D'une sortie d'IA à un fichier que le contrôle de l'imprimeur laisse passer — sans préparation manuelle.</p>
+    <ol class="steps only-papier">
+      <li><b>01</b><h4>Déposez votre image IA</h4><p>Midjourney, DALL·E, ChatGPT, Ideogram, Firefly… en JPG, PNG, WebP ou TIFF.</p></li>
+      <li><b>02</b><h4>Choisissez le produit</h4><p>Cartes, flyers, dépliants, affiches&nbsp;: chaque préréglage connaît son format fini, son fond perdu et sa résolution.</p></li>
+      <li><b>03</b><h4>PrintPro prépare</h4><p>Agrandissement à 300&nbsp;dpi, séparation CMJN avec encrage limité, fond perdu, traits de coupe en couleur de repérage.</p></li>
+      <li><b>04</b><h4>Envoyez à l'imprimeur</h4><p>PDF/X-1a:2001 en CMJN, relu et contrôlé en 9 points avant le téléchargement.</p></li>
+    </ol>
+    <ol class="steps only-dtf">
+      <li><b>01</b><h4>Déposez votre image IA</h4><p>Même sur fond plein&nbsp;: le fond est détouré automatiquement.</p></li>
+      <li><b>02</b><h4>Choisissez l'emplacement</h4><p>Cœur, A4, A3 dos, manche — le motif est placé avec une marge de film propre.</p></li>
+      <li><b>03</b><h4>PrintPro prépare</h4><p>Couleur du textile retirée, bords nets ou tramés, sous-couche blanche rétrécie, petits éclats supprimés.</p></li>
+      <li><b>04</b><h4>Envoyez au RIP</h4><p>PNG transparent 300&nbsp;dpi, couche blanche séparée et PDF d'épreuve.</p></li>
+    </ol>
+  </div>
+</section>
+
+<!-- ============================================================= output -->
+<section class="section" id="fichier">
+  <div class="wrap two showcase">
+    <div>
+      <p class="eyebrow">Le fichier livré</p>
+      <h2>Ce qui arrive dans<br><span class="grad">vos téléchargements.</span></h2>
+      <p class="sub">Un PDF/X-1a:2001 vérifiable&nbsp;: intention de sortie, TrimBox et BleedBox, traits de coupe en
+        couleur de repérage — relu et contrôlé avant de vous parvenir.</p>
+      <p class="sub">Vous avez un profil ICC CMJN (ISO Coated v2, FOGRA39…)&nbsp;? Indiquez-le avec
+        <code>PRINTPRO_CMYK_ICC</code>&nbsp;: la séparation passe par LittleCMS et le profil est incorporé.</p>
+    </div>
+    <div class="dark-card sample">
+      <div class="file-row">
+        <div class="file-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+        </div>
+        <div><strong>affiche-a3.pdf</strong><span class="dim">PDF/X-1a · 1 page</span></div>
+      </div>
+      <dl class="spec">
+        <dt>Format</dt><dd>PDF/X-1a:2001<small>ISO 15930-1</small></dd>
+        <dt>Résolution</dt><dd>300 dpi<small>3579 × 5031 px</small></dd>
+        <dt>Format fini</dt><dd>297 × 420 mm<small>A3</small></dd>
+        <dt>Fond perdu</dt><dd>+ 3 mm<small>TrimBox + BleedBox</small></dd>
+        <dt>Couleur</dt><dd>CMJN couché<small>intention de sortie FOGRA39</small></dd>
+        <dt>Traits de coupe</dt><dd>Couleur de repérage<small>0,25 pt · décalage 3 mm</small></dd>
+        <dt>Encrage</dt><dd>≤ 300 %<small>limite presse</small></dd>
+        <dt>Vérifié</dt><dd>Contrôle PrintPro<small>9 contrôles structurels</small></dd>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================== tools -->
+<section class="section alt" id="outils">
+  <div class="wrap">
+    <p class="eyebrow">Outils</p>
+    <h2>Tout est inclus.<br><span class="grad">Rien ne quitte votre machine.</span></h2>
+    <p class="sub">Pas de compte, pas de crédits, pas d'envoi sur Internet. PrintPro tourne en local et reste open source (MIT).</p>
+    <div class="plans">
+      <div class="card plan">
+        <p class="plan-kicker">Papier</p>
+        <h3>Prêt à imprimer</h3>
+        <ul class="vlist">
+          <li>PDF/X-1a CMJN, fond perdu, traits de coupe</li>
+          <li>Préréglages : cartes, flyers, dépliants, affiches</li>
+          <li>Formats sur mesure</li>
+          <li>Encrage total limité (300 %)</li>
+          <li>Contrôle prépresse en 9 points</li>
+        </ul>
+        <a class="btn btn-ghost" href="#depot" data-pick="papier">Préparer un fichier</a>
+      </div>
+      <div class="card plan featured">
+        <span class="ribbon">Nouveau</span>
+        <p class="plan-kicker">Textile</p>
+        <h3>DTF</h3>
+        <ul class="vlist">
+          <li>Sous-couche blanche rétrécie</li>
+          <li>Couleur du textile retirée</li>
+          <li>Bords nets ou tramage AM</li>
+          <li>Marge de film, éclats supprimés</li>
+          <li>PNG 300 dpi + couche blanche + PDF</li>
+        </ul>
+        <a class="btn btn-grad" href="#depot" data-pick="dtf">Préparer un film DTF</a>
+      </div>
+      <div class="card plan">
+        <p class="plan-kicker">Atelier</p>
+        <h3>Outils avancés</h3>
+        <ul class="vlist">
+          <li>Vectorisation (SVG)</li>
+          <li>Détourage + décontamination des bords</li>
+          <li>Agrandissement ×2 / ×4 / vectoriel</li>
+          <li>Planches de stickers avec contour de découpe</li>
+          <li>PDF multipage, miroir, repères de calage</li>
+        </ul>
+        <a class="btn btn-ghost" href="/atelier">Ouvrir l'atelier</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ faq -->
+<section class="section" id="faq">
+  <div class="wrap narrow">
+    <p class="eyebrow">Questions</p>
+    <div class="head-row">
+      <h2>Ce qu'on demande<br><span class="grad">avant d'imprimer.</span></h2>
+      <div class="switch mini" role="tablist" aria-label="Support">
+        <button data-family="papier" class="on">Papier</button>
+        <button data-family="dtf">DTF</button>
+      </div>
+    </div>
+    <div class="faq only-papier">
+      <details><summary>Mon imprimeur va-t-il accepter le fichier&nbsp;?</summary>
+        <p>Le PDF suit PDF/X-1a:2001, la norme d'échange que les imprimeries attendent&nbsp;: CMJN uniquement,
+          rien de transparent, TrimBox et BleedBox, intention de sortie déclarée. Le fichier est relu et contrôlé
+          en 9 points avant le téléchargement&nbsp;; le rapport est affiché à côté du lien.</p></details>
+      <details><summary>Quelle différence entre CMJN et sRVB&nbsp;?</summary>
+        <p>L'écran mélange de la lumière (rouge, vert, bleu)&nbsp;; la presse superpose des encres (cyan, magenta,
+          jaune, noir). Certaines couleurs d'écran très saturées n'existent pas en encre&nbsp;: la conversion les
+          ramène dans ce qui s'imprime, remplace le gris par du noir (GCR) et plafonne l'encrage pour que le papier sèche.</p></details>
+      <details><summary>L'agrandissement ne va-t-il pas donner un rendu artificiel&nbsp;?</summary>
+        <p>PrintPro choisit la méthode selon l'image&nbsp;: renforcement des contours guidé par le gradient pour les
+          photos, re-tracé vectoriel pour les logos et les aplats (qui restent nets à n'importe quelle taille).
+          Le contrôle gratuit indique la résolution d'origine pour que vous sachiez à quoi vous attendre.</p></details>
+      <details><summary>Quelles tailles puis-je faire&nbsp;?</summary>
+        <p>Carte de visite, flyers A6/A5/DL, dépliant A4, affiches A3 à A1, carré 20 cm — et n'importe quel format
+          sur mesure depuis la ligne de commande (<code>printpro imprimer visuel.png --produit 320x450</code>).</p></details>
+      <details><summary>Et si l'imprimeur refuse quand même le fichier&nbsp;?</summary>
+        <p>Regardez quelle règle il cite&nbsp;: fond perdu plus grand, encrage plus bas, profil précis. Chaque réglage
+          est exposé (<code>--fond-perdu</code>, <code>--encrage</code>, <code>PRINTPRO_CMYK_ICC</code>) et le fichier
+          se régénère en quelques secondes.</p></details>
+      <details><summary>Stockez-vous mes images&nbsp;?</summary>
+        <p>Non. Tout se passe sur votre machine, dans le dossier <code>workspace/</code>&nbsp;; aucune image n'est
+          envoyée sur Internet. Le bouton «&nbsp;Vider l'atelier&nbsp;» efface tout.</p></details>
+    </div>
+    <div class="faq only-dtf">
+      <details><summary>Pourquoi une sous-couche blanche&nbsp;?</summary>
+        <p>Les encres DTF sont transparentes&nbsp;: sans blanc derrière, les couleurs disparaissent sur un textile foncé.
+          PrintPro génère la couche blanche depuis le motif et la rétrécit légèrement pour qu'aucun liseré blanc ne dépasse.</p></details>
+      <details><summary>Pourquoi retirer la couleur du textile&nbsp;?</summary>
+        <p>Un fond noir dans un visuel prévu pour un t-shirt noir serait imprimé, avec du blanc dessous&nbsp;: une plaque
+          rigide et terne. En le retirant, le tissu apparaît à travers&nbsp;: plus souple, plus léger, plus net.</p></details>
+      <details><summary>Bords nets ou tramés&nbsp;?</summary>
+        <p>La poudre colle à la moindre trace d'encre&nbsp;: un bord à 10&nbsp;% d'opacité laisse un voile sale.
+          «&nbsp;Nets&nbsp;» coupe au seuil&nbsp;; «&nbsp;Tramés&nbsp;» transforme ombres et dégradés en points imprimables (trame AM).</p></details>
+      <details><summary>Faut-il mettre le film en miroir&nbsp;?</summary>
+        <p>En DTF, le film s'imprime généralement à l'endroit et c'est le RIP qui gère le sens. Si votre RIP attend
+          un fichier déjà inversé, cochez «&nbsp;Film en miroir&nbsp;».</p></details>
+      <details><summary>Stockez-vous mes images&nbsp;?</summary>
+        <p>Non. Tout se passe sur votre machine, dans le dossier <code>workspace/</code>&nbsp;; aucune image n'est envoyée sur Internet.</p></details>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <div>
+      <a class="brand" href="/">Print<span class="grad">Pro</span></a>
+      <p class="muted">Des fichiers prêts pour la presse à partir d'images IA. Pensé pour les imprimeurs que vos clients utilisent vraiment.</p>
+    </div>
+    <div>
+      <h5>Produit</h5>
+      <a href="#etapes">Comment ça marche</a>
+      <a href="#fichier">Le fichier livré</a>
+      <a href="#faq">FAQ</a>
+    </div>
+    <div>
+      <h5>Outils</h5>
+      <a href="/atelier">Atelier avancé</a>
+      <a href="/api/docs">API</a>
+      <button class="linklike" id="clear">Vider l'atelier</button>
+    </div>
+  </div>
+  <div class="wrap foot-bottom">
+    <span>PDF/X-1a:2001 · ISO 15930-1 · ISO 12647-2:2004</span>
+    <span>Pensé pour l'imprimerie, pas pour l'écran.</span>
+  </div>
+</footer>
+
+<div class="busy" id="busy"><div class="spinner"></div><p id="busy-text">Préparation…</p></div>
+<div id="toast" role="status"></div>
+<script src="/static/landing.js"></script>
 </body>
 </html>

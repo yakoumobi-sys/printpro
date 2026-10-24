@@ -8,10 +8,14 @@ import sys
 from pathlib import Path
 
 from .bgremove import BgOptions, ai_available
+from .cmyk import CmykOptions
+from .dtf import DtfOptions, make_dtf
 from .imaging import human_size, load_rgba, save_image
 from .montage import (PAGE_PRESETS, MontageItem, MontageOptions, build_montage,
                       export_pdf, export_sheets)
 from .pipeline import prepare, quality_check
+from .prepress import PressOptions, make_press_ready
+from .products import PRODUCTS, resolve_product
 from .upscale import UpscaleOptions, esrgan_available
 from .vectorize import VectorOptions
 
@@ -128,6 +132,47 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--jpeg", type=int, default=0,
                    help="qualité JPEG dans le PDF (0 = sans perte)")
 
+    # -- prêt à imprimer ----------------------------------------------------- #
+    p = sub.add_parser("imprimer", aliases=["print"],
+                       help="PDF/X-1a prêt pour l'imprimeur (CMJN, fond perdu, traits)")
+    p.add_argument("source")
+    p.add_argument("-o", "--output", required=True, help="fichier .pdf")
+    p.add_argument("--produit", default="flyer-a5",
+                   help="produit (voir `printpro produits`) ou LxH en mm")
+    p.add_argument("--cadrage", default="remplir", choices=["remplir", "entiere"],
+                   help="remplir le format (recadre) ou image entière")
+    p.add_argument("--fond-perdu", type=float, help="mm, remplace celui du produit")
+    p.add_argument("--mode-fond-perdu", default="miroir",
+                   choices=["miroir", "etirer", "zoom"])
+    p.add_argument("--orientation", default="auto",
+                   choices=["auto", "portrait", "landscape"])
+    p.add_argument("--dpi", type=int, help="remplace celui du produit")
+    p.add_argument("--encrage", type=float, default=300.0,
+                   help="encrage total maximal en %%")
+    p.add_argument("--icc", help="profil ICC CMJN (sinon PRINTPRO_CMYK_ICC)")
+    p.add_argument("--sans-traits", action="store_true", help="pas de traits de coupe")
+    p.add_argument("--fond", default="#ffffff", help="couleur sous la transparence")
+    p.add_argument("--epreuve", help="PNG d'épreuve écran")
+    p.add_argument("--json", action="store_true", help="rapport en JSON")
+
+    # -- DTF ------------------------------------------------------------------ #
+    p = sub.add_parser("dtf", help="film DTF : sous-couche blanche, bords nets")
+    p.add_argument("source")
+    p.add_argument("-o", "--output", required=True, help="dossier de sortie")
+    p.add_argument("--produit", default="dtf-a4")
+    p.add_argument("--textile", help="couleur du textile à retirer, ex. #000000")
+    p.add_argument("--tolerance", type=float, default=14.0)
+    p.add_argument("--trame", action="store_true",
+                   help="tramer ombres et bords au lieu de les couper")
+    p.add_argument("--lpi", type=float, default=35.0)
+    p.add_argument("--retrait", type=float, default=0.25,
+                   help="rétrécissement de la couche blanche, mm")
+    p.add_argument("--marge", type=float, default=2.0, help="marge de film, mm")
+    p.add_argument("--miroir", action="store_true")
+    p.add_argument("--garder-fond", action="store_true",
+                   help="ne pas détourer une image sans transparence")
+    p.add_argument("--json", action="store_true")
+
     # -- contrôle ----------------------------------------------------------- #
     p = sub.add_parser("controler", aliases=["check"],
                        help="vérifier la résolution pour une taille d'impression")
@@ -139,6 +184,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # -- divers ------------------------------------------------------------- #
     sub.add_parser("formats", help="lister les formats de page")
+    sub.add_parser("produits", help="lister les produits (format fini, fond perdu, dpi)")
     p = sub.add_parser("serve", help="lancer l'interface web")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
@@ -165,6 +211,12 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_check(args)
     if command == "formats":
         return _cmd_formats()
+    if command in ("imprimer", "print"):
+        return _cmd_print(args)
+    if command == "dtf":
+        return _cmd_dtf(args)
+    if command == "produits":
+        return _cmd_products()
     if command == "serve":
         from .server import serve
         serve(host=args.host, port=args.port, workspace=args.workspace)
@@ -348,6 +400,85 @@ def _cmd_check(args) -> int:
         print(f"  conseil     : agrandir ×{report['upscale_factor']} "
               f"(printpro agrandir {args.source} --mm {args.mm} "
               f"--dpi {args.dpi} -o sortie.png)")
+    return 0
+
+
+def _cmd_print(args) -> int:
+    product = resolve_product(args.produit, bleed_mm=args.fond_perdu, dpi=args.dpi)
+    if product.family == "dtf":
+        print("produit DTF : utilisez `printpro dtf`", file=sys.stderr)
+        return 2
+    options = PressOptions(
+        fit="cover" if args.cadrage == "remplir" else "contain",
+        bleed_mode={"miroir": "mirror", "etirer": "edge", "zoom": "scale"}[args.mode_fond_perdu],
+        orientation=args.orientation,
+        crop_marks=not args.sans_traits,
+        background=args.fond,
+        cmyk=CmykOptions(tac=args.encrage, icc_path=args.icc),
+        title=Path(args.source).stem)
+    result = make_press_ready(load_rgba(args.source), product, options)
+    out = Path(args.output)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(result.pdf)
+    if args.epreuve:
+        save_image(result.proof(), args.epreuve)
+    if args.json:
+        print(json.dumps({"pdf": str(out), "specs": result.specs, "steps": result.steps,
+                          "preflight": result.preflight.as_dict()},
+                         ensure_ascii=False, indent=2))
+        return 0 if result.preflight.passed else 1
+    print(f"{BANNER}\n  produit     : {product.label} ({result.width_mm:g} × "
+          f"{result.height_mm:g} mm, fond perdu {product.bleed_mm:g} mm, {product.dpi} dpi)")
+    for step in result.steps:
+        print(f"  • {step}")
+    print(f"\n  Contrôle prépresse :\n{result.preflight.text()}")
+    print(f"\n→ {out} ({human_size(len(result.pdf))})")
+    return 0 if result.preflight.passed else 1
+
+
+def _cmd_dtf(args) -> int:
+    product = resolve_product(args.produit)
+    options = DtfOptions(
+        remove_background="no" if args.garder_fond else "auto",
+        garment=args.textile, garment_tolerance=args.tolerance,
+        edges="halftone" if args.trame else "threshold",
+        halftone_lpi=args.lpi, choke_mm=args.retrait, margin_mm=args.marge,
+        mirror=args.miroir)
+    result = make_dtf(load_rgba(args.source), product, options)
+    out = Path(args.output)
+    stem = Path(args.source).stem
+    film = save_image(result.artwork, out / f"{stem}-dtf.png", dpi=product.dpi)
+    white = save_image(result.white_plate_rgba(), out / f"{stem}-blanc.png",
+                       dpi=product.dpi)
+    pdf = out / f"{stem}-dtf.pdf"
+    pdf.write_bytes(result.pdf)
+    passed = all(c["status"] != "fail" for c in result.checks)
+    if args.json:
+        print(json.dumps({"png": str(film), "white": str(white), "pdf": str(pdf),
+                          "specs": result.specs, "steps": result.steps,
+                          "checks": result.checks}, ensure_ascii=False, indent=2))
+        return 0 if passed else 1
+    print(f"{BANNER}\n  produit     : {product.label}")
+    for step in result.steps:
+        print(f"  • {step}")
+    marks = {"ok": "✔", "warn": "!", "fail": "✘"}
+    print("\n  Contrôle du film :")
+    for check in result.checks:
+        print(f"  {marks[check['status']]} {check['label']} — {check['detail']}")
+    for path in (film, white, pdf):
+        print(f"→ {path} ({human_size(path.stat().st_size)})")
+    return 0 if passed else 1
+
+
+def _cmd_products() -> int:
+    print(BANNER)
+    for family in ("papier", "dtf"):
+        print(f"\n  {family.upper()}")
+        for p in PRODUCTS.values():
+            if p.family == family:
+                print(f"  {p.key:<14} {p.label:<30} {p.width_mm:>5g} × {p.height_mm:<5g} mm  "
+                      f"fond perdu {p.bleed_mm:g} mm  {p.dpi} dpi")
+    print("\n  Sur mesure : --produit 320x450 (mm)")
     return 0
 
 

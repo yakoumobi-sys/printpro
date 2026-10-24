@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "printpro"
-version = "1.0.0"
-description = "Atelier de préparation de fichiers pour l'impression : vectorisation, agrandissement, détourage et montage sur planche"
+version = "2.0.0"
+description = "Fichiers prêts pour l'imprimeur à partir d'images IA : PDF/X-1a CMJN avec fond perdu et traits de coupe, films DTF, vectorisation, montage"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

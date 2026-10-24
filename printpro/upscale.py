@@ -115,22 +115,38 @@ def upscale(rgba: np.ndarray, options: UpscaleOptions | None = None) -> UpscaleR
 
 
 # --------------------------------------------------------------------------- #
-def _edge_sharpen(rgba: np.ndarray, factor: float, amount: float) -> np.ndarray:
-    """Unsharp mask weighted by local gradient: sharpens edges, not noise."""
-    rgb = rgba[:, :, :3].astype(np.float32)
+def _edge_sharpen(rgba: np.ndarray, factor: float, amount: float,
+                  band: int = 512) -> np.ndarray:
+    """Unsharp mask weighted by local gradient: sharpens edges, not noise.
+
+    Works on bands of rows with a halo wider than the blur kernels, so the
+    result is identical to a whole-image pass while the float32 temporaries
+    stay a few hundred rows tall (an A3 at 300 dpi went from 1.7 Go to
+    a few hundred Mo).
+    """
+    h = rgba.shape[0]
     sigma = max(0.6, min(3.0, 0.5 * factor))
-    blurred = gaussian_blur(rgb, sigma)
-    detail = rgb - blurred
+    halo_detail = int(4.0 * sigma + 0.5) + 2          # scipy truncate=4.0
+    halo_grad = int(4.0 * 1.0 + 0.5) + 2              # blur(1.0) + gradient
 
-    gray = rgb.mean(axis=2)
-    gy, gx = np.gradient(gaussian_blur(gray, 1.0))
-    grad = np.hypot(gx, gy)
+    grad = np.empty(rgba.shape[:2], np.float32)
+    for y0 in range(0, h, band):
+        y1 = min(h, y0 + band)
+        a, b = max(0, y0 - halo_grad), min(h, y1 + halo_grad)
+        gray = rgba[a:b, :, :3].astype(np.float32).mean(axis=2)
+        gy, gx = np.gradient(gaussian_blur(gray, 1.0))
+        grad[y0:y1] = np.hypot(gx, gy)[y0 - a:y1 - a]
     scale = np.percentile(grad, 97) or 1.0
-    weight = np.clip(grad / scale, 0.0, 1.0)[:, :, None] ** 0.7
 
-    out = rgb + detail * (float(amount) * 1.4) * weight
     result = rgba.copy()
-    result[:, :, :3] = np.clip(out + 0.5, 0, 255).astype(np.uint8)
+    for y0 in range(0, h, band):
+        y1 = min(h, y0 + band)
+        a, b = max(0, y0 - halo_detail), min(h, y1 + halo_detail)
+        rgb = rgba[a:b, :, :3].astype(np.float32)
+        detail = (rgb - gaussian_blur(rgb, sigma))[y0 - a:y1 - a]
+        weight = np.clip(grad[y0:y1] / scale, 0.0, 1.0)[:, :, None] ** 0.7
+        out = rgb[y0 - a:y1 - a] + detail * (float(amount) * 1.4) * weight
+        result[y0:y1, :, :3] = np.clip(out + 0.5, 0, 255).astype(np.uint8)
     return result
 
 
