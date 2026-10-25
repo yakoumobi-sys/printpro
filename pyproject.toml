@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-web = ["fastapi>=0.110", "uvicorn>=0.27", "python-multipart>=0.0.9"]
+web = ["fastapi>=0.110", "uvicorn>=0.27", "python-multipart>=0.0.9", "pydantic>=2.6"]
 ia = ["rembg>=2.0"]
 dev = ["pytest>=7.4", "httpx>=0.26"]
 

@@ -2,16 +2,41 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
-const esc = (text) => String(text).replace(/[&<>"']/g, (c) =>
-  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const state = { assets: [], current: null, selected: new Set(), caps: null };
+const state = {
+  assets: [],
+  current: null,
+  selected: new Set(),
+  caps: null,
+  zoom: 1,
+  original: false,
+  view: "prepare",
+  pending: new Set(),
+  working: false,
+};
+const escapeHTML = (value) =>
+  String(value).replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ],
+  );
+const emptyStage =
+  '<div class="empty"><span class="empty-symbol">⌑</span><strong>Un beau fichier.<br>Une impression impeccable.</strong><p>Importez votre premier visuel pour le détourer, l’agrandir ou le préparer pour votre planche.</p></div>';
 
 /* ---------------------------------------------------------------- utils */
 async function api(url, options = {}) {
   const response = await fetch(url, options);
   if (!response.ok) {
     let message = response.statusText;
-    try { message = (await response.json()).detail || message; } catch (_) {}
+    try {
+      const detail = (await response.json()).detail;
+      message = Array.isArray(detail)
+        ? detail
+            .map((e) => `${e.loc.slice(1).join(" · ")} : ${e.msg}`)
+            .join(" ; ")
+        : detail || message;
+    } catch (_) {}
     throw new Error(message);
   }
   return response.status === 204 ? null : response.json();
@@ -27,15 +52,27 @@ function toast(message, isError = false) {
 }
 
 async function busy(fn) {
+  if (state.working) return;
+  state.working = true;
   $("busy").classList.add("on");
-  try { return await fn(); }
-  catch (error) { toast(error.message || String(error), true); }
-  finally { $("busy").classList.remove("on"); }
+  document.body.setAttribute("aria-busy", "true");
+  try {
+    return await fn();
+  } catch (error) {
+    toast(error.message || String(error), true);
+  } finally {
+    state.working = false;
+    $("busy").classList.remove("on");
+    document.body.removeAttribute("aria-busy");
+  }
 }
 
 function bindRange(rangeId, labelId, decimals = 0) {
-  const range = $(rangeId), label = $(labelId);
-  const sync = () => { label.textContent = Number(range.value).toFixed(decimals); };
+  const range = $(rangeId),
+    label = $(labelId);
+  const sync = () => {
+    label.textContent = Number(range.value).toFixed(decimals);
+  };
   range.addEventListener("input", sync);
   sync();
 }
@@ -51,31 +88,62 @@ function renderLibrary() {
       <input class="pick" type="checkbox" ${state.selected.has(asset.id) ? "checked" : ""}>
       <button class="kill" title="Retirer">✕</button>
       <img src="${asset.preview}" alt="">
-      <div class="meta">${esc(asset.name)} · ${asset.width}×${asset.height}</div>`;
+      <div class="meta">${escapeHTML(asset.name)} · ${asset.width}×${asset.height}</div>`;
+    card
+      .querySelector(".pick")
+      .setAttribute("aria-label", `Inclure ${asset.name} sur la planche`);
+    card.querySelector(".meta").tabIndex = 0;
+    card.querySelector(".meta").setAttribute("role", "button");
+    card.querySelector(".meta").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        select(asset.id);
+      }
+    });
     card.querySelector("img").addEventListener("click", () => select(asset.id));
-    card.querySelector(".meta").addEventListener("click", () => select(asset.id));
+    card
+      .querySelector(".meta")
+      .addEventListener("click", () => select(asset.id));
     card.querySelector(".pick").addEventListener("change", (event) => {
-      event.target.checked ? state.selected.add(asset.id) : state.selected.delete(asset.id);
+      event.target.checked
+        ? state.selected.add(asset.id)
+        : state.selected.delete(asset.id);
+      invalidateMontage();
       renderMontageItems();
+      renderLibrary();
     });
     card.querySelector(".kill").addEventListener("click", async (event) => {
       event.stopPropagation();
-      await busy(() => api(`/api/assets/${asset.id}`, { method: "DELETE" }));
+      if (!confirm(`Retirer « ${asset.name} » de l’atelier ?`)) return;
+      const removed = await busy(() =>
+        api(`/api/assets/${asset.id}`, { method: "DELETE" }),
+      );
+      if (!removed) return;
+      invalidateMontage();
       state.assets = state.assets.filter((a) => a.id !== asset.id);
       state.selected.delete(asset.id);
-      if (state.current === asset.id) state.current = state.assets[0]?.id || null;
+      if (state.current === asset.id)
+        state.current = state.assets[0]?.id || null;
       refreshAll();
     });
     box.appendChild(card);
   });
+  $("asset-count").textContent = state.assets.length;
   $("lib-note").textContent = state.assets.length
     ? `${state.assets.length} visuel(s) · ${state.selected.size} coché(s) pour la planche`
     : "Aucun visuel importé pour l'instant.";
 }
 
-function asset(id = state.current) { return state.assets.find((a) => a.id === id); }
+function asset(id = state.current) {
+  return state.assets.find((a) => a.id === id);
+}
 
-function select(id) { state.current = id; refreshAll(); }
+function select(id) {
+  state.current = id;
+  state.original = false;
+  state.zoom = 1;
+  refreshAll();
+}
 
 function refreshAll() {
   renderLibrary();
@@ -86,21 +154,45 @@ function refreshAll() {
 function renderStage() {
   const current = asset();
   const stage = $("stage");
+  [
+    "run-bg",
+    "run-up",
+    "run-vec",
+    "compare",
+    "zoom-in",
+    "zoom-out",
+    "zoom-reset",
+    "print-mm",
+  ].forEach((id) => ($(id).disabled = !current));
+  $("undo").disabled = !current || current.versions < 2;
+  $("dl-png").setAttribute("aria-disabled", String(!current));
+  $("dl-svg").setAttribute("aria-disabled", String(!current?.has_svg));
+  $("compare").setAttribute("aria-pressed", String(state.original));
+  $("compare").textContent = state.original
+    ? "Revenir au résultat"
+    : "Voir l’original";
+  $("preview-name").textContent = current?.name || "Aucun visuel";
   if (!current) {
-    stage.innerHTML = '<div class="empty">Importez un visuel pour commencer.</div>';
+    stage.innerHTML = emptyStage;
+    $("dl-png").removeAttribute("href");
+    $("dl-svg").removeAttribute("href");
     $("dims").textContent = "—";
     $("quality").textContent = "—";
     return;
   }
-  stage.innerHTML = `<img src="${esc(current.preview)}" alt="${esc(current.name)}">`;
+  const url = `/api/assets/${current.id}/preview?full=1&original=${state.original}&v=${current.versions}`;
+  stage.innerHTML = `<img src="${url}" alt="${escapeHTML(current.name)}">`;
+  applyZoom();
+  $("print-mm").value = current.width_mm;
   const steps = current.history.slice(1).join(" → ");
-  $("dims").textContent = `${current.width}×${current.height} px` +
+  $("dims").textContent =
+    `${current.width}×${current.height} px` +
     ` · ${current.native_mm[0]}×${current.native_mm[1]} mm à 300 dpi` +
     (current.transparent ? " · fond transparent" : "") +
     (steps ? ` · ${steps}` : "");
   $("dl-png").href = `/api/assets/${current.id}/download`;
   $("dl-svg").href = `/api/assets/${current.id}/svg`;
-  $("dl-svg").style.opacity = current.has_svg ? 1 : .4;
+  $("dl-svg").style.opacity = current.has_svg ? 1 : 0.4;
   updateQuality();
 }
 
@@ -109,22 +201,60 @@ async function updateQuality() {
   if (!current) return;
   const mm = Number($("print-mm").value) || 100;
   try {
-    const report = await api(`/api/assets/${current.id}/quality?mm=${mm}&dpi=300`);
+    const report = await api(
+      `/api/assets/${current.id}/quality?mm=${mm}&dpi=300`,
+    );
     const node = $("quality");
-    node.textContent = `${report.dpi} dpi — ${report.label}`;
-    node.className = report.grade === "faible" ? "note warn"
-      : report.grade === "excellent" ? "note ok" : "muted";
-  } catch (_) { /* l'aperçu n'est pas critique */ }
+    if (state.current !== current.id || Number($("print-mm").value) !== mm)
+      return;
+    node.textContent =
+      `${report.dpi} dpi — ${report.label}` +
+      (report.resampled
+        ? " · image rééchantillonnée : vérifier les détails"
+        : "");
+    node.className =
+      report.grade === "faible"
+        ? "note warn"
+        : report.grade === "excellent"
+          ? "note ok"
+          : "muted";
+  } catch (_) {
+    /* l'aperçu n'est pas critique */
+  }
 }
 
 /* -------------------------------------------------------------- upload */
 async function upload(files) {
   if (!files.length) return;
+  const accepted = [...files].filter(
+    (file) =>
+      file.size <= 25 * 1024 * 1024 &&
+      /\.(png|jpe?g|webp|tiff?|bmp)$/i.test(file.name),
+  );
+  if (accepted.length !== files.length)
+    toast(
+      "Certains fichiers ont été ignorés : PNG, JPG, WEBP, TIFF ou BMP, 25 Mo maximum.",
+      true,
+    );
+  if (!accepted.length) return;
   const form = new FormData();
-  [...files].forEach((file) => form.append("files", file));
-  const created = await busy(() => api("/api/assets", { method: "POST", body: form }));
-  if (!created) return;
+  accepted.forEach((file) => form.append("files", file));
+  const created = await busy(() =>
+    api("/api/assets", { method: "POST", body: form }),
+  );
+  if (!created) {
+    // A mixed batch may have imported valid files before reporting an error.
+    try {
+      state.assets = await api("/api/assets");
+      state.current = state.assets.at(-1)?.id || null;
+      refreshAll();
+    } catch (_) {}
+    return;
+  }
+  invalidateMontage();
   state.assets.push(...created);
+  state.original = false;
+  state.zoom = 1;
   created.forEach((item) => state.selected.add(item.id));
   state.current = created[0].id;
   refreshAll();
@@ -133,6 +263,9 @@ async function upload(files) {
 
 /* --------------------------------------------------------- traitements */
 function updateAsset(updated) {
+  invalidateMontage();
+  state.original = false;
+  state.zoom = 1;
   const index = state.assets.findIndex((a) => a.id === updated.id);
   if (index >= 0) state.assets[index] = updated;
   refreshAll();
@@ -151,10 +284,13 @@ async function runBackground() {
     largest_only: $("bg-largest").checked,
     trim: $("bg-trim").checked,
   };
-  const result = await busy(() => api(`/api/assets/${current.id}/background`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  }));
+  const result = await busy(() =>
+    api(`/api/assets/${current.id}/background`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
   if (!result) return;
   updateAsset(result);
   $("bg-note").textContent =
@@ -164,6 +300,7 @@ async function runBackground() {
 async function runUpscale() {
   const current = asset();
   if (!current) return toast("Sélectionnez un visuel", true);
+  if (!$("up-value").reportValidity()) return;
   const mode = $("up-mode").value;
   const body = {
     method: $("up-method").value,
@@ -176,15 +313,18 @@ async function runUpscale() {
   } else {
     body.scale = Number($("up-value").value);
   }
-  const result = await busy(() => api(`/api/assets/${current.id}/upscale`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  }));
+  const result = await busy(() =>
+    api(`/api/assets/${current.id}/upscale`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
   if (!result) return;
   updateAsset(result);
   $("up-note").textContent =
-    `${result.method} ×${result.factor} → ${result.width}×${result.height} px · ${result.seconds}s`
-    + (result.notes?.length ? ` — ${result.notes.join(" ; ")}` : "");
+    `${result.method} ×${result.factor} → ${result.width}×${result.height} px · ${result.seconds}s` +
+    (result.notes?.length ? ` — ${result.notes.join(" ; ")}` : "");
 }
 
 async function runVectorize() {
@@ -199,17 +339,24 @@ async function runVectorize() {
     drop_background: $("vec-dropbg").checked,
     replace: $("vec-replace").checked,
   };
-  const result = await busy(() => api(`/api/assets/${current.id}/vectorize`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  }));
+  const result = await busy(() =>
+    api(`/api/assets/${current.id}/vectorize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
   if (!result) return;
   updateAsset(result);
   $("vec-note").innerHTML =
-    `${result.shapes} formes · ${result.nodes} nœuds · ${(result.svg_bytes / 1024).toFixed(1)} Ko · ${result.seconds}s`
-    + `<br>Palette : ` + result.palette.map((c) =>
-      `<span style="display:inline-block;width:12px;height:12px;border-radius:3px;border:1px solid #ccc;background:rgb(${c.join(",")})"></span>`
-    ).join(" ");
+    `${result.shapes} formes · ${result.nodes} nœuds · ${(result.svg_bytes / 1024).toFixed(1)} Ko · ${result.seconds}s` +
+    `<br>Palette : ` +
+    result.palette
+      .map(
+        (c) =>
+          `<span style="display:inline-block;width:12px;height:12px;border-radius:3px;border:1px solid #ccc;background:rgb(${c.join(",")})"></span>`,
+      )
+      .join(" ");
   toast("SVG prêt — bouton SVG dans la barre d'aperçu");
 }
 
@@ -219,7 +366,8 @@ function renderMontageItems() {
   box.innerHTML = "";
   const chosen = state.assets.filter((a) => state.selected.has(a.id));
   if (!chosen.length) {
-    box.innerHTML = '<p class="note">Cochez au moins un visuel dans la bibliothèque.</p>';
+    box.innerHTML =
+      '<p class="note">Cochez au moins un visuel dans la bibliothèque.</p>';
     return;
   }
   chosen.forEach((item) => {
@@ -227,17 +375,39 @@ function renderMontageItems() {
     row.className = "mitem";
     row.innerHTML = `
       <img src="${item.preview}" alt="">
-      <span class="name" title="${esc(item.name)}">${esc(item.name)}</span>
-      <input type="number" value="${item.width_mm}" min="1" max="2000" step="1" title="largeur en mm">
-      <input type="number" value="${item.quantity}" min="1" max="999" step="1" title="quantité">`;
+      <span class="name" title="${escapeHTML(item.name)}">${escapeHTML(item.name)}</span>
+      <span class="item-size">Largeur mm / Qté<br>${((item.width_mm * item.height) / item.width).toFixed(1)} mm de haut*</span>
+      <input aria-label="Largeur en mm de ${escapeHTML(item.name)}" type="number" value="${item.width_mm}" min="0.1" max="2000" step="0.1" title="largeur en mm">
+      <input aria-label="Quantité de ${escapeHTML(item.name)}" type="number" value="${item.quantity}" min="1" max="999" step="1" title="quantité">`;
     const [width, quantity] = row.querySelectorAll("input");
-    const save = async () => {
-      const updated = await api(`/api/assets/${item.id}/settings`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ width_mm: Number(width.value), quantity: Number(quantity.value) }),
-      });
-      const index = state.assets.findIndex((a) => a.id === updated.id);
-      if (index >= 0) state.assets[index] = updated;
+    const save = () => {
+      invalidateMontage();
+      if (!width.reportValidity() || !quantity.reportValidity()) return;
+      const task = api(`/api/assets/${item.id}/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          width_mm: Number(width.value),
+          quantity: Number(quantity.value),
+        }),
+      })
+        .then((updated) => {
+          const index = state.assets.findIndex((a) => a.id === updated.id);
+          if (index >= 0) state.assets[index] = updated;
+          row.querySelector(".item-size").innerHTML =
+            `Largeur mm / Qté<br>${((updated.width_mm * updated.height) / updated.width).toFixed(1)} mm de haut*`;
+          if (state.current === updated.id) {
+            $("print-mm").value = updated.width_mm;
+            updateQuality();
+          }
+        })
+        .catch((error) => {
+          toast(error.message, true);
+          width.value = item.width_mm;
+          quantity.value = item.quantity;
+        })
+        .finally(() => state.pending.delete(task));
+      state.pending.add(task);
     };
     width.addEventListener("change", save);
     quantity.addEventListener("change", save);
@@ -245,14 +415,29 @@ function renderMontageItems() {
   });
 }
 
-async function runMontage() {
+async function runMontage(previewOnly = false) {
+  if (
+    [...document.querySelectorAll(".montage-panel input[type=number]")].some(
+      (input) => !input.reportValidity(),
+    )
+  )
+    return;
+  await Promise.all([...state.pending]);
   const chosen = state.assets.filter((a) => state.selected.has(a.id));
   if (!chosen.length) return toast("Cochez au moins un visuel", true);
   const body = {
     items: chosen.map((item) => ({
-      id: item.id, width_mm: item.width_mm, quantity: item.quantity,
+      id: item.id,
+      width_mm: item.width_mm,
+      quantity: item.quantity,
     })),
     page: $("m-page").value,
+    page_width_mm:
+      $("m-page").value === "custom" ? Number($("m-width").value) : 0,
+    page_height_mm:
+      $("m-page").value === "custom" ? Number($("m-height").value) : 0,
+    preview_only: previewOnly,
+    auto_trim: $("m-trim").checked,
     orientation: $("m-orient").value,
     dpi: Number($("m-dpi").value),
     layout: $("m-layout").value,
@@ -266,10 +451,13 @@ async function runMontage() {
     cut_contour_mm: Number($("m-cut").value),
     cut_stroke: Number($("m-cut").value) > 0,
   };
-  const result = await busy(() => api("/api/montage", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  }));
+  const result = await busy(() =>
+    api("/api/montage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
   if (!result) return;
 
   $("m-stats").innerHTML = [
@@ -280,16 +468,30 @@ async function runMontage() {
     `<span class="stat">${result.dpi} dpi · ${result.seconds}s</span>`,
   ].join("");
 
-  $("m-links").innerHTML =
-    `<a href="${esc(result.pdf)}" download>Télécharger le PDF</a>` +
-    result.sheets.map((url, index) =>
-      `<a class="alt" href="${esc(url)}" download>PNG ${index + 1}</a>`).join("");
+  $("m-links").innerHTML = previewOnly
+    ? '<p class="note">Aperçu de placement uniquement. Exportez pour obtenir les fichiers à pleine résolution.</p>'
+    : `<a href="${result.pdf}" download>Télécharger le PDF</a>` +
+      result.sheets
+        .map(
+          (url, index) =>
+            `<a class="alt" href="${url}" download>PNG ${index + 1}</a>`,
+        )
+        .join("");
 
   $("sheets").innerHTML = result.previews
-    .map((url) => `<img src="${esc(url)}" alt="planche">`).join("");
+    .map((url) => `<img src="${url}" alt="planche">`)
+    .join("");
 
-  (result.warnings || []).forEach((warning) => toast(warning, true));
-  toast(`${result.placed} visuels sur ${result.pages} planche(s)`);
+  $("m-warnings").replaceChildren();
+  (result.warnings || []).forEach((warning) => {
+    const p = document.createElement("p");
+    p.textContent = warning;
+    $("m-warnings").appendChild(p);
+  });
+  toast(
+    `${previewOnly ? "Aperçu calculé" : "Export prêt"} · ${result.placed}/${result.requested} visuels sur ${result.pages} planche(s)`,
+    result.placed < result.requested,
+  );
 }
 
 /* ---------------------------------------------------------------- init */
@@ -303,40 +505,64 @@ async function init() {
     if (name === "A4") option.selected = true;
     select.appendChild(option);
   });
+  select.add(new Option("Dimensions personnalisées…", "custom"));
   if (!state.caps.ai_background) {
     $("bg-method").querySelector('option[value="ai"]').textContent =
       "IA (rembg non installé)";
+    $("bg-method").querySelector('option[value="ai"]').disabled = true;
   }
   if (!state.caps.ai_upscale) {
     $("up-method").querySelector('option[value="ai"]').textContent =
       "Real-ESRGAN (non installé)";
+    $("up-method").querySelector('option[value="ai"]').disabled = true;
   }
 
   const existing = await api("/api/assets");
   state.assets = existing;
   existing.forEach((item) => state.selected.add(item.id));
   state.current = existing[0]?.id || null;
+  try {
+    const saved = JSON.parse(localStorage.getItem("printpro-montage") || "{}");
+    Object.entries(saved).forEach(([id, value]) => {
+      const input = $(id);
+      if (!input || !input.closest(".montage-panel")) return;
+      if (input.type === "checkbox") input.checked = Boolean(value);
+      else input.value = value;
+    });
+    $("custom-size").hidden = $("m-page").value !== "custom";
+  } catch (_) {
+    /* private browsing may disable storage */
+  }
   refreshAll();
 }
 
 /* événements */
 $("drop").addEventListener("click", () => $("file").click());
-$("file").addEventListener("change", (event) => upload(event.target.files));
+$("file").addEventListener("change", async (event) => {
+  await upload(event.target.files);
+  event.target.value = "";
+});
 ["dragenter", "dragover"].forEach((type) =>
   $("drop").addEventListener(type, (event) => {
-    event.preventDefault(); $("drop").classList.add("hot");
-  }));
+    event.preventDefault();
+    $("drop").classList.add("hot");
+  }),
+);
 ["dragleave", "drop"].forEach((type) =>
   $("drop").addEventListener(type, (event) => {
-    event.preventDefault(); $("drop").classList.remove("hot");
-  }));
+    event.preventDefault();
+    $("drop").classList.remove("hot");
+  }),
+);
 $("drop").addEventListener("drop", (event) => upload(event.dataTransfer.files));
 window.addEventListener("dragover", (event) => event.preventDefault());
 window.addEventListener("drop", (event) => event.preventDefault());
 
 document.querySelectorAll(".tabs button").forEach((button) => {
   button.addEventListener("click", () => {
-    document.querySelectorAll(".tabs button").forEach((b) => b.classList.remove("on"));
+    document
+      .querySelectorAll(".tabs button")
+      .forEach((b) => b.classList.remove("on"));
     document.querySelectorAll(".tool").forEach((t) => t.classList.remove("on"));
     button.classList.add("on");
     $("tab-" + button.dataset.tab).classList.add("on");
@@ -344,32 +570,60 @@ document.querySelectorAll(".tabs button").forEach((button) => {
 });
 
 $("bg-method").addEventListener("change", (event) => {
-  $("bg-color-field").style.display = event.target.value === "color" ? "block" : "none";
+  $("bg-color-field").style.display =
+    event.target.value === "color" ? "block" : "none";
 });
 $("up-mode").addEventListener("change", (event) => {
   const physical = event.target.value === "mm";
   $("up-dpi-field").style.display = physical ? "block" : "none";
-  $("up-value").value = physical ? 200 : 2;
+  $("up-value").value = physical ? asset()?.width_mm || 200 : 2;
+  $("up-value").max = physical ? 2000 : 20;
+  $("up-value").step = physical ? 0.1 : 0.5;
 });
 
 $("run-bg").addEventListener("click", runBackground);
 $("run-up").addEventListener("click", runUpscale);
 $("run-vec").addEventListener("click", runVectorize);
-$("run-montage").addEventListener("click", runMontage);
-$("print-mm").addEventListener("change", updateQuality);
+$("run-montage").addEventListener("click", () => runMontage(false));
+$("preview-montage").addEventListener("click", () => runMontage(true));
+$("print-mm").addEventListener("change", async () => {
+  const current = asset();
+  if (!current || !$("print-mm").reportValidity()) return;
+  const result = await busy(() =>
+    api(`/api/assets/${current.id}/settings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ width_mm: Number($("print-mm").value) }),
+    }),
+  );
+  if (result) updateAsset(result);
+});
 
 $("undo").addEventListener("click", async () => {
   const current = asset();
   if (!current) return;
-  const result = await busy(() => api(`/api/assets/${current.id}/undo`, { method: "POST" }));
-  if (result) { updateAsset(result); toast("Étape annulée"); }
+  const result = await busy(() =>
+    api(`/api/assets/${current.id}/undo`, { method: "POST" }),
+  );
+  if (result) {
+    updateAsset(result);
+    toast("Étape annulée");
+  }
 });
 
 $("clear").addEventListener("click", async () => {
   if (!confirm("Supprimer tous les visuels et les planches générées ?")) return;
-  await busy(() => api("/api/workspace/clear", { method: "POST" }));
-  state.assets = []; state.selected.clear(); state.current = null;
-  $("sheets").innerHTML = ""; $("m-links").innerHTML = ""; $("m-stats").innerHTML = "";
+  const cleared = await busy(() =>
+    api("/api/workspace/clear", { method: "POST" }),
+  );
+  if (!cleared) return;
+  state.assets = [];
+  state.selected.clear();
+  state.current = null;
+  invalidateMontage();
+  $("sheets").innerHTML = "";
+  $("m-links").innerHTML = "";
+  $("m-stats").innerHTML = "";
   refreshAll();
 });
 
@@ -383,4 +637,114 @@ bindRange("vec-detail", "vec-det-v", 1);
 bindRange("vec-smooth", "vec-sm-v", 1);
 bindRange("vec-area", "vec-area-v");
 
-init().catch((error) => toast(error.message, true));
+function invalidateMontage() {
+  if ($("m-stats").textContent)
+    $("sheets").innerHTML =
+      '<div class="export-empty"><strong>Réglages modifiés</strong><p>Recalculez l’aperçu pour vérifier votre nouvelle planche.</p></div>';
+  $("m-stats").replaceChildren();
+  $("m-links").replaceChildren();
+  $("m-warnings").replaceChildren();
+}
+function applyZoom() {
+  const image = $("stage").querySelector("img");
+  $("stage").classList.toggle("zoomed", state.zoom > 1);
+  if (image) {
+    image.style.width = state.zoom > 1 ? `${state.zoom * 90}%` : "";
+    image.style.height = "auto";
+  }
+  $("zoom-reset").textContent =
+    state.zoom === 1 ? "Ajuster" : `${Math.round(state.zoom * 100)} %`;
+}
+$("zoom-in").onclick = () => {
+  state.zoom = Math.min(4, state.zoom + 0.5);
+  applyZoom();
+};
+$("zoom-out").onclick = () => {
+  state.zoom = Math.max(1, state.zoom - 0.5);
+  applyZoom();
+};
+$("zoom-reset").onclick = () => {
+  state.zoom = 1;
+  applyZoom();
+};
+$("canvas-bg").onchange = (e) => {
+  $("stage").dataset.background = e.target.value;
+};
+$("compare").onclick = () => {
+  state.original = !state.original;
+  renderStage();
+};
+$("import-main").onclick = () => $("file").click();
+$("drop").onkeydown = (e) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    $("file").click();
+  }
+};
+$("select-all").onclick = () => {
+  state.assets.forEach((a) => state.selected.add(a.id));
+  invalidateMontage();
+  refreshAll();
+};
+$("select-none").onclick = () => {
+  state.selected.clear();
+  invalidateMontage();
+  refreshAll();
+};
+$("m-page").onchange = () => {
+  $("custom-size").hidden = $("m-page").value !== "custom";
+};
+document
+  .querySelectorAll(".montage-panel input, .montage-panel select")
+  .forEach((el) =>
+    el.addEventListener("change", () => {
+      invalidateMontage();
+      const saved = {};
+      document
+        .querySelectorAll(".montage-panel input[id], .montage-panel select[id]")
+        .forEach((input) => {
+          saved[input.id] =
+            input.type === "checkbox" ? input.checked : input.value;
+        });
+      try {
+        localStorage.setItem("printpro-montage", JSON.stringify(saved));
+      } catch (_) {}
+    }),
+  );
+document.querySelectorAll(".nav-btn").forEach(
+  (button) =>
+    (button.onclick = () => {
+      state.view = button.dataset.view;
+      document.querySelectorAll(".nav-btn").forEach((b) => {
+        b.classList.toggle("on", b === button);
+        b.setAttribute("aria-pressed", String(b === button));
+      });
+      const montage = state.view === "montage";
+      document.querySelector(".preview-panel").hidden = montage;
+      document.querySelector(".tools-panel").hidden = montage;
+      document.querySelector(".montage-panel").hidden = !montage;
+      $("view-title").textContent = montage
+        ? "Chaque millimètre compte."
+        : "De l’image au fichier prêt à imprimer.";
+    }),
+);
+document.addEventListener("keydown", (e) => {
+  if (e.target.matches("input,select,textarea")) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+    e.preventDefault();
+    if (!state.working) $("undo").click();
+  }
+});
+// Associate all static field captions with their controls.
+document.querySelectorAll(".field").forEach((field) => {
+  const label = field.querySelector("label"),
+    input = field.querySelector("input, select");
+  if (label && input && input.id) label.htmlFor = input.id;
+});
+init().catch((error) => {
+  $("save-state").textContent = "Connexion indisponible";
+  toast(
+    `Impossible d’ouvrir l’atelier : ${error.message}. Rechargez la page.`,
+    true,
+  );
+});

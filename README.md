@@ -124,6 +124,23 @@ contrôle prépresse et les liens de téléchargement.
 Les outils détaillés (détourage, agrandissement, vectorisation, planches)
 sont sur **http://127.0.0.1:8000/atelier**.
 
+#### L'atelier
+
+1. **Préparer les visuels** : importez vos fichiers, vérifiez le détourage sur fond blanc/sombre/damier, zoomez et comparez avec l’original. Chaque traitement raster peut être annulé ; `Ctrl/Cmd + Z` fonctionne hors des champs.
+2. **Composer la planche** : sélectionnez les visuels, saisissez largeur et quantité, puis choisissez A4/A3, DTF 30/40/42/60 cm ou un format personnalisé.
+3. **Calculer l’aperçu** : contrôle du placement et des DPI sans écrire les fichiers haute résolution. Les alertes restent affichées, notamment si certains exemplaires ne tiennent pas.
+4. **Exporter en PDF & PNG** : export à la résolution choisie, fond transparent et miroir en option. Un changement de réglage masque les liens périmés jusqu’au prochain calcul.
+
+Les fichiers, versions, SVG, dimensions et quantités sont restaurés au redémarrage depuis `workspace/atelier.json` (écriture atomique). Les réglages de planche sont mémorisés dans le navigateur. Sauvegardez le dossier `workspace` complet pour conserver vos travaux. Les ateliers de la version précédente sans manifeste ne sont pas importés automatiquement.
+
+**Précision d’impression** : la largeur désigne le visuel après rognage si cette option est cochée ; décochez-la pour conserver les marges transparentes du fichier. Les PNG individuels contiennent les DPI correspondant à la largeur saisie. Un agrandissement ajoute des pixels, mais ne garantit pas la récupération des détails ; inspectez le résultat avant production. Dans le RIP ou le lecteur PDF, utilisez la taille réelle (100 %), sans « ajuster à la page ».
+
+**Performances** : le montage optimisé compare quatre ordres de placement jusqu’à 500 exemplaires ; au-delà, il utilise le tri par surface. Il s’agit d’une heuristique rectangulaire, pas d’une garantie d’optimum. Les rendus répétés sont réutilisés et un même visuel est intégré une seule fois dans le PDF par orientation/taille.
+
+**Limites de l’interface** : 25 Mo et 40 mégapixels par import ; 2 000 exemplaires demandés et 20 pages par montage ; export limité à 100 mégapixels par page et 250 mégapixels au total. Un aperçu léger reste possible si l’export est trop volumineux. Les modes IA ne sont sélectionnables que si leurs moteurs sont disponibles.
+
+Cet outil est **local et mono-utilisateur**, sans authentification. Utilisez un seul processus serveur et gardez l’écoute sur `127.0.0.1` ; un accès d’équipe nécessite une couche d’authentification et un stockage multi-utilisateur dédiés.
+
 ---
 
 ### Déploiement Vercel

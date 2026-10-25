@@ -101,6 +101,7 @@ class PdfWriter:
         objects.append(b"")
         pages_id = pages_id_placeholder
 
+        image_objects: dict[tuple, int] = {}
         for page in self.pages:
             resources: list[str] = []
             content = io.StringIO()
@@ -117,8 +118,12 @@ class PdfWriter:
 
             for index, placed in enumerate(page.images):
                 name = f"Im{index}"
-                img_id = self._write_image(placed.image, add_object,
-                                           placed.colorspace)
+                # Reused artwork is compressed and embedded once across pages.
+                key = (id(placed.image), placed.colorspace)
+                if key not in image_objects:
+                    image_objects[key] = self._write_image(placed.image, add_object,
+                                                           placed.colorspace)
+                img_id = image_objects[key]
                 resources.append(f"/{name} {img_id} 0 R")
                 x = placed.x_mm * PT_PER_MM
                 w = placed.w_mm * PT_PER_MM

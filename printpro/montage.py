@@ -39,6 +39,8 @@ PAGE_PRESETS: dict[str, tuple[float, float]] = {
     "Legal": (215.9, 355.6),
     "Tabloid": (279.4, 431.8),
     "DTF-30": (300.0, 1000.0),       # 30 cm film roll, 1 m section
+    "DTF-40": (400.0, 1000.0),
+    "DTF-42": (420.0, 1000.0),
     "DTF-60": (600.0, 1000.0),       # 60 cm film roll
     "Vinyl-50": (500.0, 1000.0),
     "Mug": (200.0, 90.0),            # standard mug wrap
@@ -137,7 +139,9 @@ def page_size(opt: MontageOptions) -> tuple[float, float]:
     if opt.page_width_mm and opt.page_height_mm:
         w, h = float(opt.page_width_mm), float(opt.page_height_mm)
     else:
-        w, h = PAGE_PRESETS.get(opt.page, PAGE_PRESETS["A4"])
+        if opt.page not in PAGE_PRESETS:
+            raise ValueError("format de page inconnu ; indiquez largeur et hauteur")
+        w, h = PAGE_PRESETS[opt.page]
     if opt.orientation == "landscape" and h > w:
         w, h = h, w
     elif opt.orientation == "portrait" and w > h:
@@ -149,6 +153,17 @@ def build_montage(items: list[MontageItem],
                   options: MontageOptions | None = None) -> MontageResult:
     opt = options or MontageOptions()
     pw, ph = page_size(opt)
+    values = [pw, ph, opt.margin_mm, opt.spacing_mm, opt.cut_contour_mm, opt.dpi]
+    if not all(math.isfinite(v) for v in values) or min(pw, ph, opt.dpi) <= 0:
+        raise ValueError("dimensions et résolution doivent être finies et positives")
+    if min(opt.margin_mm, opt.spacing_mm, opt.cut_contour_mm) < 0:
+        raise ValueError("marges et espacements doivent être positifs")
+    if opt.layout not in ("pack", "grid", "fill"):
+        raise ValueError("disposition inconnue")
+    if opt.max_pages < 1:
+        raise ValueError("le nombre maximal de pages doit être positif")
+    if any(not all(math.isfinite(v) and v > 0 for v in item.size_mm()) or item.quantity < 1 for item in items):
+        raise ValueError("dimensions et quantités des visuels doivent être positives")
     usable_w = pw - 2 * opt.margin_mm
     usable_h = ph - 2 * opt.margin_mm
     warnings: list[str] = []
@@ -158,31 +173,30 @@ def build_montage(items: list[MontageItem],
 
     prepared: list[MontageItem] = []
     for item in items:
-        img = item.image
-        if opt.auto_trim:
-            img = trim(img, padding=1)
-        if opt.cut_contour_mm > 0:
-            w_mm, _ = item.size_mm()
-            px_per_mm = img.shape[1] / max(w_mm, 1e-6)
-            img = add_cut_contour(img, opt.cut_contour_mm * px_per_mm,
-                                  hex_to_rgb(opt.cut_contour_color),
-                                  stroke=opt.cut_stroke)
-        prepared.append(MontageItem(image=img, width_mm=item.width_mm,
-                                    height_mm=item.height_mm,
-                                    quantity=max(1, int(item.quantity)),
+        img = trim(item.image, padding=1) if opt.auto_trim else item.image
+        prepared_item = MontageItem(image=img, width_mm=item.width_mm,
+                                    height_mm=item.height_mm, quantity=int(item.quantity),
                                     rotatable=item.rotatable, label=item.label,
-                                    source_dpi=item.source_dpi))
-
-    # Growing each item by the cut contour keeps the requested artwork size.
-    if opt.cut_contour_mm > 0:
-        for original, item in zip(items, prepared):
-            w_mm, h_mm = original.size_mm()
-            item.width_mm = w_mm + 2 * opt.cut_contour_mm
-            item.height_mm = h_mm + 2 * opt.cut_contour_mm
+                                    source_dpi=item.source_dpi)
+        if opt.cut_contour_mm > 0:
+            # Include every padded pixel (also the optional cut stroke), so the
+            # artwork itself retains its requested physical size after export.
+            w_mm, h_mm = prepared_item.size_mm()
+            h_px, w_px = img.shape[:2]
+            img = add_cut_contour(img, opt.cut_contour_mm * w_px / w_mm,
+                                  hex_to_rgb(opt.cut_contour_color), stroke=opt.cut_stroke)
+            prepared_item.width_mm = w_mm * img.shape[1] / w_px
+            prepared_item.height_mm = h_mm * img.shape[0] / h_px
+            prepared_item.image = img
+        prepared.append(prepared_item)
 
     requests: list[tuple[int, float, float]] = []
+    requested = 0
     for index, item in enumerate(prepared):
         w_mm, h_mm = item.size_mm()
+        count = item.quantity if opt.layout != "fill" else _fill_count(
+            w_mm, h_mm, usable_w, usable_h, opt, item.rotatable)
+        requested += count
         if w_mm > usable_w + 1e-6 or h_mm > usable_h + 1e-6:
             if item.rotatable and h_mm <= usable_w + 1e-6 and w_mm <= usable_h + 1e-6:
                 pass                     # rotation will save it
@@ -192,8 +206,8 @@ def build_montage(items: list[MontageItem],
                     f"({w_mm:.0f}×{h_mm:.0f} mm) dépasse la zone utile "
                     f"({usable_w:.0f}×{usable_h:.0f} mm)")
                 continue
-        count = item.quantity if opt.layout != "fill" else _fill_count(
-            w_mm, h_mm, usable_w, usable_h, opt)
+        if len(requests) + count > 10000:
+            raise ValueError("montage limité à 10 000 placements ; augmentez la taille des visuels ou réduisez les quantités")
         requests.extend([(index, w_mm, h_mm)] * count)
 
     if opt.sort == "area":
@@ -203,6 +217,15 @@ def build_montage(items: list[MontageItem],
         pages = _layout_grid(requests, prepared, usable_w, usable_h, opt)
     else:
         pages = _layout_pack(requests, prepared, usable_w, usable_h, opt)
+        if opt.layout == "pack" and opt.sort == "area" and len(requests) <= 500:
+            def score(candidate):
+                return (-sum(map(len, candidate)), len(candidate),
+                        sum(max((p.y_mm + p.h_mm for p in page), default=0) for page in candidate))
+            for order in (lambda r: (-max(r[1:]), -min(r[1:])),
+                          lambda r: (-r[2], -r[1]), lambda r: (-r[1], -r[2])):
+                candidate = _layout_pack(sorted(requests, key=order), prepared, usable_w, usable_h, opt)
+                if score(candidate) < score(pages):
+                    pages = candidate
 
     if len(pages) > opt.max_pages:
         warnings.append(f"sortie limitée à {opt.max_pages} pages")
@@ -214,20 +237,22 @@ def build_montage(items: list[MontageItem],
             placement.y_mm += opt.margin_mm
 
     placed = sum(len(p) for p in pages)
+    if placed < requested:
+        warnings.append(f"{requested - placed} exemplaire(s) non placé(s). Vérifiez les dimensions et la limite de {opt.max_pages} pages.")
     area_used = sum(p.w_mm * p.h_mm for page in pages for p in page)
     total_area = max(1e-6, usable_w * usable_h * max(1, len(pages)))
     return MontageResult(pages=pages, page_size_mm=(pw, ph), options=opt,
-                         items=prepared, placed=placed, requested=len(requests),
+                         items=prepared, placed=placed, requested=requested,
                          efficiency=min(1.0, area_used / total_area),
                          warnings=warnings)
 
 
 def _fill_count(w_mm: float, h_mm: float, usable_w: float, usable_h: float,
-                opt: MontageOptions) -> int:
+                opt: MontageOptions, rotatable: bool = True) -> int:
     """How many copies fit on one sheet (both orientations considered)."""
     gap = opt.spacing_mm
     best = 0
-    for a, b in ((w_mm, h_mm), (h_mm, w_mm)):
+    for a, b in (((w_mm, h_mm), (h_mm, w_mm)) if rotatable else ((w_mm, h_mm),)):
         cols = int((usable_w + gap) // (a + gap))
         rows = int((usable_h + gap) // (b + gap))
         best = max(best, cols * rows)
@@ -237,15 +262,22 @@ def _fill_count(w_mm: float, h_mm: float, usable_w: float, usable_h: float,
 def _layout_grid(requests, items, usable_w, usable_h, opt) -> list[list[Placement]]:
     if not requests:
         return []
-    w_mm = max(r[1] for r in requests)
-    h_mm = max(r[2] for r in requests)
+    oriented = []
+    for index, w, h in requests:
+        rotated = (w > usable_w or h > usable_h) and items[index].rotatable
+        oriented.append((index, h if rotated else w, w if rotated else h, rotated))
+    w_mm = max(r[1] for r in oriented)
+    h_mm = max(r[2] for r in oriented)
     gap = opt.spacing_mm
-    cols = opt.columns or max(1, int((usable_w + gap) // (w_mm + gap)))
+    available_cols = max(1, int((usable_w + gap) // (w_mm + gap)))
+    if opt.columns > available_cols:
+        raise ValueError("trop de colonnes pour la largeur disponible")
+    cols = opt.columns or available_cols
     rows = max(1, int((usable_h + gap) // (h_mm + gap)))
     per_page = max(1, cols * rows)
 
     pages: list[list[Placement]] = []
-    for position, (index, iw, ih) in enumerate(requests):
+    for position, (index, iw, ih, rotated) in enumerate(oriented):
         page_no, slot = divmod(position, per_page)
         if page_no >= opt.max_pages:
             break
@@ -254,7 +286,7 @@ def _layout_grid(requests, items, usable_w, usable_h, opt) -> list[list[Placemen
         row, col = divmod(slot, cols)
         x = col * (w_mm + gap) + (w_mm - iw) / 2.0        # centred in its cell
         y = row * (h_mm + gap) + (h_mm - ih) / 2.0
-        pages[page_no].append(Placement(index, page_no, x, y, iw, ih))
+        pages[page_no].append(Placement(index, page_no, x, y, iw, ih, rotated))
     return pages
 
 
@@ -338,7 +370,7 @@ class _MaxRects:
         keep: list[list[float]] = []
         for i, a in enumerate(self.free):
             contained = any(
-                i != j and a[0] >= b[0] - 1e-9 and a[1] >= b[1] - 1e-9 and
+                (a != b or i > j) and i != j and a[0] >= b[0] - 1e-9 and a[1] >= b[1] - 1e-9 and
                 a[0] + a[2] <= b[0] + b[2] + 1e-9 and
                 a[1] + a[3] <= b[1] + b[3] + 1e-9
                 for j, b in enumerate(self.free))
@@ -398,8 +430,12 @@ def render_page(result: MontageResult, page_index: int,
         canvas[:, :, :3] = np.array(hex_to_rgb(opt.background), dtype=np.uint8)
         canvas[:, :, 3] = 255
 
+    patches = {}
     for placement in result.pages[page_index]:
-        patch = _item_for(result, placement, dpi)
+        key = (placement.item, placement.w_mm, placement.h_mm, placement.rotated)
+        if key not in patches:
+            patches[key] = _item_for(result, placement, dpi)
+        patch = patches[key]
         x = mm_to_px(placement.x_mm, dpi) if placement.x_mm else 0
         y = mm_to_px(placement.y_mm, dpi) if placement.y_mm else 0
         _blend(canvas, patch, x, y)
@@ -479,14 +515,18 @@ def export_pdf(result: MontageResult, path: str | Path,
     writer = PdfWriter("PrintPro montage", jpeg_quality=jpeg_quality)
     background = hex_to_rgb(opt.background) if opt.background else None
 
+    patches = {}
     for page_index, placements in enumerate(result.pages):
         page = Page(pw, ph, background=background)
         for placement in placements:
-            patch = _item_for(result, placement, opt.dpi)
+            key = (placement.item, placement.w_mm, placement.h_mm, placement.rotated)
+            if key not in patches:
+                patch = _item_for(result, placement, opt.dpi)
+                patches[key] = mirror(patch, horizontal=True) if opt.mirror else patch
+            patch = patches[key]
             x_mm = placement.x_mm
             if opt.mirror:
                 x_mm = pw - placement.x_mm - placement.w_mm
-                patch = mirror(patch, horizontal=True)
             page.images.append(PlacedImage(patch, x_mm, placement.y_mm,
                                            placement.w_mm, placement.h_mm))
             if opt.crop_marks:
@@ -495,6 +535,13 @@ def export_pdf(result: MontageResult, path: str | Path,
             if opt.outline:
                 page.lines.extend(_frame_lines(x_mm, placement.y_mm,
                                                placement.w_mm, placement.h_mm))
+        if opt.registration_marks:
+            inset = max(3.0, opt.margin_mm / 2)
+            for cx, cy in ((inset, inset), (pw-inset, inset), (inset, ph-inset), (pw-inset, ph-inset)):
+                page.lines.extend([Line(cx-4.5, cy, cx+4.5, cy, .2), Line(cx, cy-4.5, cx, cy+4.5, .2)])
+                for n in range(32):
+                    a, b = n * math.tau / 32, (n+1) * math.tau / 32
+                    page.lines.append(Line(cx+3*math.cos(a), cy+3*math.sin(a), cx+3*math.cos(b), cy+3*math.sin(b), .2))
         writer.add_page(page)
     return writer.save(path)
 
