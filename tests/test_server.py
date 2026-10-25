@@ -177,3 +177,18 @@ def test_outputs_cannot_escape_the_workspace(client, upload):
     for url in ("/api/sorties/..%2F..%2F/etc",
                 "/api/sorties/x/..%2F..%2Fassets", "/api/sorties/nope/rapport.json"):
         assert client.get(url).status_code == 404
+
+
+def test_vercel_entrypoint_uses_tmp_workspace(tmp_path, monkeypatch):
+    import importlib
+    import sys
+    from printpro.server import default_workspace
+    monkeypatch.delenv("PRINTPRO_WORKSPACE", raising=False)
+    monkeypatch.setenv("VERCEL", "1")
+    assert str(default_workspace()) == "/tmp/printpro-workspace"
+    monkeypatch.setenv("PRINTPRO_WORKSPACE", str(tmp_path / "ws"))
+    sys.modules.pop("app", None)
+    entry = importlib.import_module("app")
+    client = fastapi_testclient.TestClient(entry.app)
+    assert client.get("/api/products").status_code == 200
+    assert (tmp_path / "ws" / "assets").is_dir()
