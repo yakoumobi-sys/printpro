@@ -88,6 +88,10 @@ def _request(method: str, url: str, body: bytes | None = None,
         if error.code == 402:
             raise AIError("crédit Replicate épuisé : ajoutez un moyen de "
                           "paiement sur replicate.com") from None
+        if error.code == 429:
+            raise AIError("trop de requêtes IA d'affilée : réessayez dans quelques "
+                          "secondes (limite levée en ajoutant un moyen de paiement "
+                          "sur replicate.com)") from None
         raise AIError(f"service IA : erreur {error.code} — {str(detail)[:300]}") from None
     except (urllib.error.URLError, TimeoutError, OSError) as error:
         raise AIError(f"service IA injoignable : {error}") from None
