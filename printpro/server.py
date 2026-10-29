@@ -30,6 +30,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
                                PlainTextResponse, Response)
 from fastapi.staticfiles import StaticFiles
 
+from . import ai
 from .bgremove import BgOptions, ai_available, remove_background
 from .cmyk import CmykOptions
 from .dtf import DtfOptions, make_dtf
@@ -260,6 +261,7 @@ def create_app(workspace: str | Path = "workspace") -> FastAPI:
             "pages": {name: list(size) for name, size in PAGE_PRESETS.items()},
             "ai_background": ai_available(),
             "ai_upscale": esrgan_available(),
+            "ai_vectorize": ai.configured(),
         }
 
     # -- assets ---------------------------------------------------------- #
@@ -387,18 +389,22 @@ def create_app(workspace: str | Path = "workspace") -> FastAPI:
             curves=not bool(body.get("polygons", False)))
         started = time.perf_counter()
         image = load_rgba(asset.path)
-        result = vectorize(image, options)
+        engine = body.get("engine", "local")
+        result = ai.vectorize(image) if engine == "ai" else vectorize(image, options)
         if body.get("replace", True):
             preview_image = render_layers(result.layers, result.width,
-                                          result.height, scale=1.0)
+                                          result.height, scale=1.0,
+                                          curves=engine != "ai")
             store.push_version(asset, preview_image,
-                               f"vectorisation ({result.shapes} formes)")
+                               f"vectorisation {'IA ' if engine == 'ai' else ''}"
+                               f"({result.shapes} formes)")
         asset.svg = result.svg
         store.save()
         return payload(asset, {
             "shapes": result.shapes, "nodes": result.nodes,
             "palette": [list(c) for c in result.palette],
             "svg_bytes": len(result.svg.encode("utf-8")),
+            "engine": engine,
             "seconds": round(time.perf_counter() - started, 2)})
 
     @app.get("/api/assets/{asset_id}/svg")

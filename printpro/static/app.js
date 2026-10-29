@@ -331,6 +331,7 @@ async function runVectorize() {
   const current = asset();
   if (!current) return toast("Sélectionnez un visuel", true);
   const body = {
+    engine: $("vec-engine").value,
     mode: $("vec-mode").value,
     colors: Number($("vec-colors").value),
     detail: Number($("vec-detail").value),
@@ -349,7 +350,7 @@ async function runVectorize() {
   if (!result) return;
   updateAsset(result);
   $("vec-note").innerHTML =
-    `${result.shapes} formes · ${result.nodes} nœuds · ${(result.svg_bytes / 1024).toFixed(1)} Ko · ${result.seconds}s` +
+    `${result.engine === "ai" ? "IA · " : ""}${result.shapes} formes · ${result.nodes} nœuds · ${(result.svg_bytes / 1024).toFixed(1)} Ko · ${result.seconds}s` +
     `<br>Palette : ` +
     result.palette
       .map(
@@ -506,16 +507,21 @@ async function init() {
     select.appendChild(option);
   });
   select.add(new Option("Dimensions personnalisées…", "custom"));
-  if (!state.caps.ai_background) {
-    $("bg-method").querySelector('option[value="ai"]').textContent =
-      "IA (rembg non installé)";
-    $("bg-method").querySelector('option[value="ai"]').disabled = true;
-  }
-  if (!state.caps.ai_upscale) {
-    $("up-method").querySelector('option[value="ai"]').textContent =
-      "Real-ESRGAN (non installé)";
-    $("up-method").querySelector('option[value="ai"]').disabled = true;
-  }
+  // L'IA devient le choix par défaut dès qu'elle est configurée.
+  [
+    ["bg-method", state.caps.ai_background],
+    ["up-method", state.caps.ai_upscale],
+    ["vec-engine", state.caps.ai_vectorize],
+  ].forEach(([id, available]) => {
+    const option = $(id).querySelector('option[value="ai"]');
+    if (available) {
+      $(id).value = "ai";
+    } else {
+      option.textContent = "IA (non configurée : REPLICATE_API_TOKEN)";
+      option.disabled = true;
+    }
+    $(id).dispatchEvent(new Event("change"));
+  });
 
   const existing = await api("/api/assets");
   state.assets = existing;
@@ -569,6 +575,9 @@ document.querySelectorAll(".tabs button").forEach((button) => {
   });
 });
 
+$("vec-engine").addEventListener("change", (event) => {
+  $("vec-local").style.display = event.target.value === "ai" ? "none" : "";
+});
 $("bg-method").addEventListener("change", (event) => {
   $("bg-color-field").style.display =
     event.target.value === "color" ? "block" : "none";

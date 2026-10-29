@@ -35,6 +35,7 @@ class UpscaleRequest(Request):
 
 
 class VectorRequest(Request):
+    engine: Literal["local", "ai"] = "local"
     colors: int = Field(default=8, ge=2, le=32)
     mode: Literal["color", "bw"] = "color"
     detail: float = Field(default=1, ge=.2, le=4)

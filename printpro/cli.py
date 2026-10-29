@@ -80,6 +80,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--polygones", action="store_true",
                    help="pas de courbes de Bézier")
     p.add_argument("--apercu", help="PNG de contrôle rendu depuis le vecteur")
+    p.add_argument("--ia", action="store_true",
+                   help="tracé par IA (REPLICATE_API_TOKEN requis)")
 
     # -- préparation complète ----------------------------------------------- #
     p = sub.add_parser("preparer", aliases=["prep"],
@@ -194,7 +196,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 # --------------------------------------------------------------------------- #
 def main(argv: list[str] | None = None) -> int:
+    from .ai import AIError
     args = build_parser().parse_args(argv)
+    try:
+        return _dispatch(args)
+    except AIError as error:
+        print(f"! IA : {error}", file=sys.stderr)
+        return 1
+
+
+def _dispatch(args) -> int:
     command = args.command
 
     if command in ("detourer", "bg"):
@@ -236,7 +247,8 @@ def _cmd_bg(args) -> int:
     if args.couleur and args.methode == "auto":
         options.method = "color"
     if options.method == "ai" and not ai_available():
-        print("! rembg n'est pas installé, repli sur le détourage colorimétrique",
+        print("! aucune IA disponible (REPLICATE_API_TOKEN ou rembg), "
+              "repli sur le détourage colorimétrique",
               file=sys.stderr)
     result = prepare(image, remove_bg=True, bg_options=options)
     save_image(result.image, args.output)
@@ -255,7 +267,8 @@ def _cmd_upscale(args) -> int:
         options.target_mm = (args.mm, args.mm * h / max(w, 1))
         options.target_dpi = args.dpi
     if args.methode == "ai" and not esrgan_available():
-        print("! Real-ESRGAN introuvable, repli sur 'edge'", file=sys.stderr)
+        print("! aucune IA disponible (REPLICATE_API_TOKEN ou Real-ESRGAN), "
+              "repli sur 'edge'", file=sys.stderr)
     result = prepare(image, upscale_options=options)
     save_image(result.image, args.output, dpi=args.dpi)
     print(f"{BANNER}\n{result.report()}\n→ {args.output} "
@@ -265,6 +278,21 @@ def _cmd_upscale(args) -> int:
 
 def _cmd_vector(args) -> int:
     image = load_rgba(args.source)
+    if args.ia:
+        from . import ai
+        from .raster import render_layers
+        traced = ai.vectorize(image)
+        out = Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(traced.svg, encoding="utf-8")
+        print(f"{BANNER}\nvectorisation IA : {traced.shapes} formes, "
+              f"{len(traced.palette)} couleurs\n→ {out} ({human_size(out.stat().st_size)})")
+        if args.apercu:
+            save_image(render_layers(traced.layers, traced.width, traced.height,
+                                     curves=False, background=(255, 255, 255)),
+                       args.apercu)
+            print(f"→ aperçu : {args.apercu}")
+        return 0
     options = VectorOptions(colors=args.couleurs, mode=args.mode,
                             detail=args.detail, smoothing=args.lissage,
                             min_area=args.aire_min, blur=args.flou,

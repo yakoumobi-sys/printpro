@@ -137,7 +137,7 @@
             <select id="bg-method">
               <option value="auto">Automatique (détecte le fond)</option>
               <option value="color">Couleur précise</option>
-              <option value="ai">IA (rembg, si installé)</option>
+              <option value="ai">IA (détourage intelligent)</option>
             </select>
           </div>
           <div class="field" id="bg-color-field" style="display: none">
@@ -206,7 +206,7 @@
               <option value="vector">Vectorielle (logos, aplats)</option>
               <option value="edge">Photo (contours + netteté)</option>
               <option value="lanczos">Lanczos simple</option>
-              <option value="ai">Real-ESRGAN (si installé)</option>
+              <option value="ai">IA (super-résolution)</option>
             </select>
           </div>
           <div class="field">
@@ -261,6 +261,14 @@
         </div>
 
         <div class="tool" id="tab-vec">
+          <div class="field">
+            <label>Moteur</label>
+            <select id="vec-engine">
+              <option value="local">Algorithme intégré (réglable)</option>
+              <option value="ai">IA (tracé intelligent)</option>
+            </select>
+          </div>
+          <div id="vec-local">
           <div class="field">
             <label>Mode</label>
             <select id="vec-mode">
@@ -325,6 +333,7 @@
             ><input type="checkbox" id="vec-dropbg" checked /> Supprimer la
             couleur de fond</label
           >
+          </div>
           <label class="check"
             ><input type="checkbox" id="vec-replace" checked /> Remplacer
             l'aperçu par le rendu vectoriel</label

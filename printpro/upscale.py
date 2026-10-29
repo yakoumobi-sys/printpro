@@ -9,8 +9,9 @@ Three strategies, pickable or automatic:
              enlarged 10x stays perfectly sharp, which is what a print shop
              actually needs.
 
-If a Real-ESRGAN ncnn binary is available in ``PATH`` (or ``PRINTPRO_ESRGAN``)
-the ``ai`` method uses it; otherwise it degrades to ``edge``.
+The ``ai`` method uses the cloud super-resolution model of :mod:`printpro.ai`
+when ``REPLICATE_API_TOKEN`` is set, else a Real-ESRGAN ncnn binary found in
+``PATH`` (or ``PRINTPRO_ESRGAN``); otherwise it degrades to ``edge``.
 """
 
 from __future__ import annotations
@@ -95,7 +96,7 @@ def upscale(rgba: np.ndarray, options: UpscaleOptions | None = None) -> UpscaleR
     if method == "ai":
         out = _esrgan(source, tw, th)
         if out is None:
-            method, notes_add = "edge", "Real-ESRGAN indisponible, repli sur 'edge'"
+            method, notes_add = "edge", "IA indisponible, repli sur 'edge'"
             notes.append(notes_add)
         else:
             return UpscaleResult(out, "ai", factor, (w, h), (tw, th), notes)
@@ -202,7 +203,10 @@ def _vector_upscale(rgba: np.ndarray, tw: int, th: int, opt: UpscaleOptions):
 
 
 def _esrgan(rgba: np.ndarray, tw: int, th: int):  # pragma: no cover - optional
-    """Use an external Real-ESRGAN ncnn binary when the operator installed one."""
+    """AI super-resolution: cloud model, else a local Real-ESRGAN binary."""
+    from . import ai
+    if ai.configured():
+        return ai.upscale(rgba, tw, th)
     binary = os.environ.get("PRINTPRO_ESRGAN") or shutil.which("realesrgan-ncnn-vulkan")
     if not binary:
         return None
@@ -223,7 +227,8 @@ def _esrgan(rgba: np.ndarray, tw: int, th: int):  # pragma: no cover - optional
 
 
 def esrgan_available() -> bool:
-    return bool(os.environ.get("PRINTPRO_ESRGAN") or
+    from . import ai
+    return bool(ai.configured() or os.environ.get("PRINTPRO_ESRGAN") or
                 shutil.which("realesrgan-ncnn-vulkan"))
 
 

@@ -10,9 +10,10 @@ Two engines are available:
     background tint out of the semi-transparent pixels (despill).
 
 ``ai``
-    Used only when the optional ``rembg`` package is installed (U²-Net).  It
-    handles photographic subjects with hair/fur that colour segmentation
-    cannot.  We still run our edge refinement on top of its mask.
+    AI matting: the cloud model of :mod:`printpro.ai` when
+    ``REPLICATE_API_TOKEN`` is set, else the optional ``rembg`` package
+    (U²-Net).  It handles photographic subjects with hair/fur that colour
+    segmentation cannot.  We still run our edge refinement on top of its mask.
 """
 
 from __future__ import annotations
@@ -289,7 +290,14 @@ def _unmix(rgb: np.ndarray, alpha: np.ndarray, bg_color) -> np.ndarray:
 
 
 def _ai_mask(rgba: np.ndarray):
-    """Optional U²-Net matting through ``rembg`` — ``None`` when unavailable."""
+    """AI matting: cloud model first, then ``rembg`` — ``None`` when unavailable.
+
+    A configured cloud engine that fails raises :class:`~printpro.ai.AIError`
+    rather than silently handing back a colour cut-out.
+    """
+    from . import ai
+    if ai.configured():
+        return ai.remove_background(rgba)
     try:  # pragma: no cover - optional heavy dependency
         from rembg import remove as rembg_remove
         from .imaging import encode, load_rgba
@@ -300,8 +308,11 @@ def _ai_mask(rgba: np.ndarray):
 
 
 def ai_available() -> bool:
-    """Is the optional ``rembg`` engine installed?"""
+    """Is an AI engine available (cloud token or ``rembg`` installed)?"""
     from importlib.util import find_spec
+    from . import ai
+    if ai.configured():
+        return True
     try:
         return find_spec("rembg") is not None
     except Exception:  # pragma: no cover - broken installs

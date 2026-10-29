@@ -8,7 +8,8 @@ l'imprimeur accepte sans allers-retours.
 
 ![Accueil PrintPro](docs/accueil.png)
 
-Tout tourne **en local** : aucune image n'est envoyée sur Internet, et
+Tout tourne **en local** : aucune image n'est envoyée sur Internet (sauf si
+vous activez l'IA en ligne, voir *Installation*), et
 **aucun binaire externe n'est requis** (ni Ghostscript, ni ImageMagick, ni
 potrace) : Pillow + NumPy + SciPy suffisent.
 
@@ -98,7 +99,27 @@ pip install -e ".[web]"
 
 Python 3.10 minimum.
 
-**Modules optionnels** (détectés automatiquement, jamais obligatoires) :
+**IA en ligne (recommandé, fonctionne aussi sur Vercel)** — détourage,
+agrandissement et vectorisation par IA via [Replicate](https://replicate.com),
+avec un seul jeton :
+
+```bash
+export REPLICATE_API_TOKEN=r8_...       # sur Vercel : Settings → Environment Variables
+```
+
+| Outil | Modèle par défaut | Variable pour en changer |
+|---|---|---|
+| Détourage | `bria/remove-background` (RMBG 2.0) | `PRINTPRO_AI_BG_MODEL` |
+| Agrandissement | `topazlabs/image-upscale` (×2/×4/×6, puis ajustement exact) | `PRINTPRO_AI_UPSCALE_MODEL` |
+| Vectorisation | `recraft-ai/recraft-vectorize` (SVG) | `PRINTPRO_AI_VECTOR_MODEL` |
+
+Dès que le jeton est présent, l'atelier sélectionne l'IA par défaut pour les
+trois outils (les algorithmes intégrés restent disponibles dans les menus).
+Les images sont alors envoyées à Replicate et chaque traitement est facturé
+par Replicate (quelques centimes). En ligne de commande : `--methode ai` pour
+`detourer` / `agrandir`, `--ia` pour `vectoriser`.
+
+**Modules optionnels locaux** (détectés automatiquement, jamais obligatoires) :
 
 ```bash
 pip install rembg          # détourage IA des sujets complexes (cheveux, fourrure)
