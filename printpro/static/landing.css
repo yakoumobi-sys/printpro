@@ -195,6 +195,26 @@ body[data-family="papier"] .only-dtf, body[data-family="dtf"] .only-papier { dis
 .tick { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; cursor: pointer; }
 .tick input { accent-color: var(--to); width: 16px; height: 16px; }
 
+/* ---------------------------------------------------------- advanced tools */
+.tools { border-top: 1px solid var(--line-soft); padding-top: 16px; display: grid; gap: 12px; }
+.tools-head { display: flex; align-items: baseline; justify-content: space-between; }
+.tools h3 { margin: 0; font-size: 15px; }
+.tool-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.tool-tabs button {
+  display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 6px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--bg-elev); cursor: pointer;
+  font: 600 12.5px var(--font); color: var(--muted); line-height: 1.25; text-align: center;
+}
+.tool-tabs button:hover { color: var(--ink); border-color: #d4d4d8; }
+.tool-tabs button.on { color: var(--ink); border-color: var(--to); box-shadow: 0 0 0 1px var(--to) inset; background: #fff7f5; }
+.tool-tabs svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.tool-pane { display: grid; gap: 10px; }
+.tool-pane p { margin: 0; }
+.tool-bar { display: flex; flex-wrap: wrap; gap: 8px; }
+.history { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+.history li { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--line-soft); color: var(--ink-2); }
+#tool-note:empty { display: none; }
+
 /* ---------------------------------------------------------------- result */
 .result { margin-top: 20px; }
 .dark-card {
@@ -317,7 +337,7 @@ h2 { font-size: clamp(30px, 4.4vw, 44px); line-height: 1.06; letter-spacing: -.0
 }
 /* Touch screens: every control at least 40 px tall. */
 @media (pointer: coarse) {
-  .seg button, .switch.mini button, .switch button { min-height: 40px; }
+  .seg button, .switch.mini button, .switch button, .tool-tabs button, .tool-bar .btn { min-height: 40px; }
   .foot-grid a, .foot-grid .linklike { padding: 6px 0; margin-bottom: 2px; }
   .tick { min-height: 40px; }
   select, input[type=number] { min-height: 40px; }

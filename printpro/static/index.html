@@ -84,6 +84,79 @@
           <span class="muted" id="art-px">—</span>
         </div>
         <button class="btn btn-ghost btn-sm" id="replace">Changer de visuel</button>
+
+        <section class="tools" aria-labelledby="tools-title">
+          <div class="tools-head">
+            <h3 id="tools-title">Outils avancés</h3>
+            <span class="muted small">facultatif</span>
+          </div>
+          <div class="tool-tabs" role="tablist" aria-label="Outil">
+            <button role="tab" data-tool="bg" class="on" aria-selected="true">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg>
+              Supprimer le fond</button>
+            <button role="tab" data-tool="vec" aria-selected="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19l7-7 3 3-7 7-3-3zM18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5zM2 2l7.6 7.6"/><circle cx="11" cy="11" r="2"/></svg>
+              Vectoriser</button>
+            <button role="tab" data-tool="up" aria-selected="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+              Agrandir</button>
+          </div>
+
+          <div class="tool-pane" data-pane="bg">
+            <p class="muted small">Retire l'arrière-plan et nettoie le liseré autour du sujet.</p>
+            <div class="opt">
+              <span>Moteur</span>
+              <div class="seg" data-name="bg_method">
+                <button data-value="auto" class="on">Automatique</button>
+                <button data-value="ai" class="needs-ai" data-cap="ai_background">IA</button>
+              </div>
+            </div>
+          </div>
+          <div class="tool-pane" data-pane="vec" hidden>
+            <p class="muted small">Trace le visuel en courbes : net à toutes les tailles, téléchargeable en SVG.</p>
+            <div class="opt">
+              <span>Couleurs</span>
+              <div class="seg" data-name="vec_colors">
+                <button data-value="4">4</button>
+                <button data-value="8" class="on">8</button>
+                <button data-value="16">16</button>
+              </div>
+            </div>
+            <div class="opt">
+              <span>Moteur</span>
+              <div class="seg" data-name="vec_engine">
+                <button data-value="local" class="on">Local</button>
+                <button data-value="ai" class="needs-ai" data-cap="ai_vectorize">IA</button>
+              </div>
+            </div>
+          </div>
+          <div class="tool-pane" data-pane="up" hidden>
+            <p class="muted small">Augmente la résolution sans flou : contours renforcés ou re-tracé vectoriel.</p>
+            <div class="opt">
+              <span>Facteur</span>
+              <div class="seg" data-name="up_scale">
+                <button data-value="2" class="on">×2</button>
+                <button data-value="4">×4</button>
+              </div>
+            </div>
+            <div class="opt">
+              <span>Moteur</span>
+              <div class="seg" data-name="up_method">
+                <button data-value="auto" class="on">Automatique</button>
+                <button data-value="ai" class="needs-ai" data-cap="ai_upscale">IA</button>
+              </div>
+            </div>
+          </div>
+
+          <button class="btn btn-grad" id="tool-run">Supprimer le fond</button>
+          <p class="muted small" id="tool-note" role="status"></p>
+          <div class="tool-bar">
+            <button class="btn btn-ghost btn-sm" id="tool-undo" disabled>Annuler</button>
+            <a class="btn btn-ghost btn-sm" id="dl-png" href="#" download>PNG</a>
+            <a class="btn btn-ghost btn-sm" id="dl-svg" href="#" download hidden>SVG</a>
+          </div>
+          <ol class="history" id="tool-history" aria-label="Étapes appliquées"></ol>
+        </section>
       </div>
 
       <div class="card check">

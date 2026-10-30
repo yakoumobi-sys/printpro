@@ -260,3 +260,9 @@ def test_png_download_embeds_physical_resolution(client, upload):
     response = client.get(f"/api/assets/{upload['id']}/download")
     with Image.open(io.BytesIO(response.content)) as image:
         assert image.info['dpi'][0] == pytest.approx(140 * 25.4 / 40, abs=.02)
+
+
+def test_landing_has_advanced_tools(client):
+    html = client.get("/").text
+    for marker in ('data-tool="bg"', 'data-tool="vec"', 'data-tool="up"', 'id="tool-run"'):
+        assert marker in html
