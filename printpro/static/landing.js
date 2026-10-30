@@ -7,7 +7,12 @@ const state = {
   products: [],
   product: { papier: "flyer-a5", dtf: "dtf-a4" },
   asset: null,
-  seg: { fit: "cover", bleed_mode: "mirror", orientation: "auto", edges: "threshold" },
+  seg: {
+    fit: "cover", bleed_mode: "mirror", orientation: "auto", edges: "threshold",
+    bg_method: "auto", vec_colors: "8", vec_engine: "local", up_scale: "2", up_method: "auto",
+  },
+  tool: "bg",
+  caps: {},
 };
 
 /* ---------------------------------------------------------------- utils */
@@ -84,15 +89,98 @@ async function upload(file) {
     const form = new FormData();
     form.append("files", file, file.name);
     const [asset] = await api("/api/assets", { method: "POST", body: form });
-    state.asset = asset;
-    $("art-img").src = `${asset.preview}`;
-    $("art-name").textContent = asset.name;
-    $("art-px").textContent = `${fmt(asset.width)} × ${fmt(asset.height)} px`
-      + (asset.transparent ? " · fond transparent" : "");
+    showAsset(asset);
+    $("tool-note").textContent = "";
     $("job").hidden = false;
     $("result").hidden = true;
     await inspect();
     $("job").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+}
+
+function showAsset(asset) {
+  state.asset = asset;
+  $("art-img").src = `${asset.preview}&t=${Date.now()}`;  // ?v= repeats after undo
+  $("art-name").textContent = asset.name;
+  $("art-px").textContent = `${fmt(asset.width)} × ${fmt(asset.height)} px`
+    + (asset.transparent ? " · fond transparent" : "");
+  $("tool-undo").disabled = asset.versions <= 1;
+  $("dl-png").href = `/api/assets/${asset.id}/download`;
+  $("dl-svg").href = `/api/assets/${asset.id}/svg`;
+  $("dl-svg").hidden = !asset.has_svg;
+  $("tool-history").innerHTML = (asset.history || []).slice(1)
+    .map((step) => `<li>${esc(step)}</li>`).join("");
+}
+
+/* -------------------------------------------------------- advanced tools */
+const TOOLS = {
+  bg: {
+    label: () => "Supprimer le fond",
+    busy: "Suppression du fond…",
+    url: "background",
+    body: () => ({ method: state.seg.bg_method }),
+    done: (r) => `Fond supprimé (${r.engine}) — sujet sur ${fmt(r.coverage)} % de l'image.`,
+  },
+  vec: {
+    label: () => "Vectoriser en SVG",
+    busy: "Vectorisation…",
+    url: "vectorize",
+    body: () => ({ colors: Number(state.seg.vec_colors), engine: state.seg.vec_engine }),
+    done: (r) => `Vectorisé : ${fmt(r.shapes)} formes, SVG de ${bytes(r.svg_bytes)}.`,
+  },
+  up: {
+    label: () => `Agrandir ×${state.seg.up_scale}`,
+    busy: "Agrandissement…",
+    url: "upscale",
+    body: () => ({ scale: Number(state.seg.up_scale), method: state.seg.up_method }),
+    done: (r) => `Agrandi ×${fmt(r.factor, 2)} (${r.method}).`,
+  },
+};
+
+function setTool(tool) {
+  state.tool = tool;
+  document.querySelectorAll(".tool-tabs button").forEach((button) => {
+    const on = button.dataset.tool === tool;
+    button.classList.toggle("on", on);
+    button.setAttribute("aria-selected", String(on));
+  });
+  document.querySelectorAll(".tool-pane").forEach((pane) => {
+    pane.hidden = pane.dataset.pane !== tool;
+  });
+  $("tool-run").textContent = TOOLS[tool].label();
+}
+
+async function applyTool() {
+  if (!state.asset) return;
+  const tool = TOOLS[state.tool];
+  const result = await busy(tool.busy, () =>
+    post(`/api/assets/${state.asset.id}/${tool.url}`, tool.body()));
+  if (!result) return;
+  showAsset(result);
+  $("tool-note").textContent = `${tool.done(result)} (${fmt(result.seconds, 1)} s)`;
+  $("result").hidden = true;
+  await inspect();
+}
+
+async function undoTool() {
+  if (!state.asset) return;
+  const asset = await busy("Annulation…", () => post(`/api/assets/${state.asset.id}/undo`, {}));
+  if (!asset) return;
+  showAsset(asset);
+  $("tool-note").textContent = "Dernière étape annulée.";
+  $("result").hidden = true;
+  await inspect();
+}
+
+function applyCaps(caps) {
+  state.caps = caps || {};
+  document.querySelectorAll(".needs-ai").forEach((button) => {
+    const available = Boolean(state.caps[button.dataset.cap]);
+    button.hidden = !available;
+    button.closest(".opt").hidden = !available;   // a one-choice row says nothing
+    if (!available && button.classList.contains("on")) {
+      button.parentElement.querySelector("button").click();
+    }
   });
 }
 
@@ -212,6 +300,7 @@ function wire() {
       group.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === button));
       state.seg[group.dataset.name] = button.dataset.value;
       if (group.dataset.name === "orientation") inspect();
+      if (group.dataset.name === "up_scale") $("tool-run").textContent = TOOLS.up.label();
     });
   });
 
@@ -237,6 +326,10 @@ function wire() {
   });
 
   $("replace").addEventListener("click", () => file.click());
+  document.querySelectorAll(".tool-tabs button").forEach((button) =>
+    button.addEventListener("click", () => setTool(button.dataset.tool)));
+  $("tool-run").addEventListener("click", applyTool);
+  $("tool-undo").addEventListener("click", undoTool);
   $("run").addEventListener("click", run);
   $("clear").addEventListener("click", async () => {
     await busy("Nettoyage…", () => post("/api/workspace/clear", {}));
@@ -252,4 +345,5 @@ function wire() {
     state.products = await api("/api/products");
     fillProducts();
   } catch (error) { toast(error.message, true); }
+  try { applyCaps(await api("/api/capabilities")); } catch (_) { applyCaps({}); }
 })();
