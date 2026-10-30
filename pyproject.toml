@@ -9,10 +9,15 @@ description = "Fichiers prêts pour l'imprimeur à partir d'images IA : PDF/X-1a
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
+# The web server is part of the package: hosts that install from this file
+# (Vercel, `pip install .`) must get FastAPI too, or `app.py` cannot import.
 dependencies = [
     "pillow>=10.0",
     "numpy>=1.24",
     "scipy>=1.10",
+    "fastapi>=0.110",
+    "python-multipart>=0.0.9",
+    "pydantic>=2.6",
 ]
 
 [project.optional-dependencies]
