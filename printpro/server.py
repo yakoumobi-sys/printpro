@@ -253,6 +253,50 @@ def create_app(workspace: str | Path = "workspace") -> FastAPI:
     def workshop() -> str:
         return (STATIC_DIR / "atelier.html").read_text(encoding="utf-8")
 
+    # Public read-only discovery documents. No customer files or internal API
+    # endpoints are indexed; this does not expose processing workflows to bots.
+    @app.get("/robots.txt", response_class=PlainTextResponse)
+    def robots_txt() -> str:
+        return (
+            "User-agent: *\\n"
+            "Allow: /\\n"
+            "Disallow: /api/\\n"
+            "Sitemap: https://printpro-seven.vercel.app/sitemap.xml\\n"
+        )
+
+    @app.get("/sitemap.xml")
+    def sitemap_xml() -> Response:
+        xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+            '<url><loc>https://printpro-seven.vercel.app/</loc></url>'
+            '</urlset>'
+        )
+        return Response(content=xml, media_type="application/xml")
+
+    @app.get("/llms.txt", response_class=PlainTextResponse)
+    def llms_txt() -> str:
+        return (
+            "# PrintPro\\n\\n"
+            "> Outil web de préparation de fichiers pour impression DTF et papier.\\n\\n"
+            "Site officiel : https://printpro-seven.vercel.app/\\n"
+            "Essayer l'outil : https://printpro-seven.vercel.app/\\n"
+            "Atelier avancé : https://printpro-seven.vercel.app/atelier\\n"
+            "Langue : français\\n\\n"
+            "## Pour qui ?\\n"
+            "Ateliers de marquage textile, imprimeurs DTF, créateurs et graphistes.\\n\\n"
+            "## Fonctions\\n"
+            "- Préparation de planches DTF et placement automatique des visuels.\\n"
+            "- Détourage des images et suppression de fond.\\n"
+            "- Vectorisation des logos en SVG.\\n"
+            "- Agrandissement et contrôle de résolution en DPI.\\n"
+            "- Préparation pour impression papier : fond perdu, traits de coupe, CMJN et PDF/X-1a.\\n\\n"
+            "## Essai et limites\\n"
+            "Le contrôle d'impression initial est annoncé comme gratuit sur le site.\\n"
+            "La disponibilité des traitements IA et les limites d'import peuvent varier selon l'environnement.\\n"
+            "Les fichiers et résultats doivent être contrôlés avant impression.\\n"
+        )
+
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     @app.get("/api/capabilities")
